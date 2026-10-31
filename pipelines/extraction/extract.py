@@ -10,7 +10,7 @@ import psycopg
 from pipelines.config import AppConfig
 
 from . import mock_data
-from .queries import sales_query
+from .queries import inventory_query, sales_query
 from .windows import business_day_window
 
 SALES_COLUMNS = [
@@ -18,6 +18,12 @@ SALES_COLUMNS = [
     "created_at",
     "transaction_number",
     "total",
+]
+
+INVENTORY_COLUMNS = [
+    "item_id",
+    "name",
+    "stock_quantity",
 ]
 
 
@@ -52,3 +58,18 @@ def extract_sales(
         sales_query(),
         {"window_start": window_start, "window_end": window_end},
     )
+
+
+def extract_inventory(
+    config: AppConfig,
+    connection: psycopg.Connection | None = None,
+) -> pd.DataFrame:
+    """Extract the current inventory snapshot."""
+
+    if config.etl.mock_mode:
+        return mock_data.inventory()[INVENTORY_COLUMNS]
+
+    if connection is None:
+        raise ValueError("A source connection is required when mock mode is disabled")
+
+    return _run_query(connection, inventory_query())
