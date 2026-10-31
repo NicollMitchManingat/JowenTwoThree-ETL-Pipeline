@@ -49,6 +49,7 @@ def extract_sales(
     business_date: date,
     config: AppConfig,
     connection: psycopg.Connection | None = None,
+    apply_window: bool = True,
 ) -> pd.DataFrame:
     """Extract sales transactions for a business date."""
 
@@ -57,6 +58,9 @@ def extract_sales(
 
     if connection is None:
         raise ValueError("A source connection is required when mock mode is disabled")
+
+    if not apply_window:
+        return _run_query(connection, sales_query(apply_window=False))
 
     window_start, window_end = business_day_window(business_date, config.etl.timezone)
     return _run_query(
@@ -85,6 +89,7 @@ def extract_traffic(
     business_date: date,
     config: AppConfig,
     connection: psycopg.Connection | None = None,
+    apply_window: bool = True,
 ) -> pd.DataFrame:
     """Extract customer traffic records for a business date."""
 
@@ -93,6 +98,9 @@ def extract_traffic(
 
     if connection is None:
         raise ValueError("A source connection is required when mock mode is disabled")
+
+    if not apply_window:
+        return _run_query(connection, traffic_query(apply_window=False))
 
     window_start, window_end = business_day_window(business_date, config.etl.timezone)
     return _run_query(
