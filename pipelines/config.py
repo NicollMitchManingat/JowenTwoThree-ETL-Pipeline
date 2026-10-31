@@ -36,10 +36,17 @@ class ETLConfig:
     staging_dir: Path
     log_dir: Path
     handover_dir: Path
+    silver_dir: Path
+    quarantine_dir: Path
+    transform_log_dir: Path
     retry_attempts: int
     retry_backoff_seconds: float
     log_level: str
     log_retention_days: int
+    lookback_days: int
+    low_stock_threshold: int
+    rejection_warn_rate: float
+    rejection_fail_rate: float
 
 
 @dataclass(frozen=True)
@@ -116,16 +123,44 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
     if log_retention < 1:
         raise ConfigError("ETL_LOG_RETENTION_DAYS must be at least 1")
 
+    lookback_days = _get_int(env, "ETL_LOOKBACK_DAYS", 3)
+    if lookback_days < 1:
+        raise ConfigError("ETL_LOOKBACK_DAYS must be at least 1")
+
+    low_stock_threshold = _get_int(env, "ETL_LOW_STOCK_THRESHOLD", 5)
+    if low_stock_threshold < 0:
+        raise ConfigError("ETL_LOW_STOCK_THRESHOLD cannot be negative")
+
+    rejection_warn_rate = _get_float(env, "ETL_REJECTION_WARN_RATE", 0.01)
+    rejection_fail_rate = _get_float(env, "ETL_REJECTION_FAIL_RATE", 0.05)
+    if not 0.0 <= rejection_warn_rate <= rejection_fail_rate <= 1.0:
+        raise ConfigError(
+            "Rejection rates must satisfy 0 <= ETL_REJECTION_WARN_RATE "
+            "<= ETL_REJECTION_FAIL_RATE <= 1"
+        )
+
     etl = ETLConfig(
         mock_mode=_get_bool(env, "ETL_MOCK_MODE", False),
         timezone=_get(env, "ETL_TIMEZONE", "Asia/Manila") or "Asia/Manila",
         staging_dir=Path(_get(env, "ETL_STAGING_DIR", "data/bronze") or "data/bronze"),
         log_dir=Path(_get(env, "ETL_LOG_DIR", "data/logs") or "data/logs"),
         handover_dir=Path(_get(env, "ETL_HANDOVER_DIR", "data/handover") or "data/handover"),
+        silver_dir=Path(_get(env, "ETL_SILVER_DIR", "data/silver") or "data/silver"),
+        quarantine_dir=Path(
+            _get(env, "ETL_QUARANTINE_DIR", "data/quarantine") or "data/quarantine"
+        ),
+        transform_log_dir=Path(
+            _get(env, "ETL_TRANSFORM_LOG_DIR", "data/logs/transformation")
+            or "data/logs/transformation"
+        ),
         retry_attempts=retry_attempts,
         retry_backoff_seconds=retry_backoff,
         log_level=(_get(env, "LOG_LEVEL", "INFO") or "INFO").upper(),
         log_retention_days=log_retention,
+        lookback_days=lookback_days,
+        low_stock_threshold=low_stock_threshold,
+        rejection_warn_rate=rejection_warn_rate,
+        rejection_fail_rate=rejection_fail_rate,
     )
 
     source: SourceDBConfig | None = None
