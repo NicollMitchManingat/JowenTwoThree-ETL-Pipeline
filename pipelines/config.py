@@ -35,6 +35,7 @@ class ETLConfig:
     timezone: str
     staging_dir: Path
     log_dir: Path
+    handover_dir: Path
     retry_attempts: int
     retry_backoff_seconds: float
     log_level: str
@@ -120,6 +121,7 @@ def load_config(env: Mapping[str, str] | None = None) -> AppConfig:
         timezone=_get(env, "ETL_TIMEZONE", "Asia/Manila") or "Asia/Manila",
         staging_dir=Path(_get(env, "ETL_STAGING_DIR", "data/bronze") or "data/bronze"),
         log_dir=Path(_get(env, "ETL_LOG_DIR", "data/logs") or "data/logs"),
+        handover_dir=Path(_get(env, "ETL_HANDOVER_DIR", "data/handover") or "data/handover"),
         retry_attempts=retry_attempts,
         retry_backoff_seconds=retry_backoff,
         log_level=(_get(env, "LOG_LEVEL", "INFO") or "INFO").upper(),

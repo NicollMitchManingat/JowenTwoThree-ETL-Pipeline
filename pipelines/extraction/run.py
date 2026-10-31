@@ -16,6 +16,7 @@ from pipelines.config import AppConfig, ConfigError, load_config
 from pipelines.db import get_source_connection, with_retry
 from pipelines.logging_setup import configure_logging
 
+from .acceptance import Decision, decide, write_handover_manifest
 from .extract import extract_inventory, extract_sales, extract_traffic
 from .metadata import (
     TableRunMetadata,
@@ -33,9 +34,11 @@ class RunResult:
     run_id: str
     business_date: date
     status: str
+    decision: str
     validation_passed: bool
     parquet_paths: dict[str, Path]
     log_path: Path | None
+    handover_path: Path | None
 
 
 def resolve_business_date(
@@ -139,6 +142,7 @@ def run_extraction(
             connection.close()
 
     validation_label = "PASS" if report.passed else "FAIL"
+    acceptance = decide(report)
     entries = [
         _build_metadata(
             run_id,
@@ -168,13 +172,27 @@ def run_extraction(
         log_path = write_run_log(entries, config.etl.log_dir)
         purge_old_logs(config.etl.log_dir, config.etl.log_retention_days)
 
+    handover_path: Path | None = None
+    if acceptance.decision is Decision.APPROVED and not dry_run:
+        record_counts = {table: len(frame) for table, frame in frames.items()}
+        handover_path = write_handover_manifest(
+            run_id,
+            business_date,
+            report,
+            parquet_paths,
+            record_counts,
+            config.etl.handover_dir,
+        )
+
     return RunResult(
         run_id=run_id,
         business_date=business_date,
         status=status,
+        decision=acceptance.decision.value,
         validation_passed=report.passed,
         parquet_paths=parquet_paths,
         log_path=log_path,
+        handover_path=handover_path,
     )
 
 
@@ -249,12 +267,15 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         f"{result.run_id} {result.business_date.isoformat()} "
-        f"status={result.status} validation={'PASS' if result.validation_passed else 'FAIL'}"
+        f"status={result.status} decision={result.decision} "
+        f"validation={'PASS' if result.validation_passed else 'FAIL'}"
     )
     for table, path in result.parquet_paths.items():
         print(f" - {table}: {path}")
     if result.log_path is not None:
         print(f" log: {result.log_path}")
+    if result.handover_path is not None:
+        print(f" handover: {result.handover_path}")
 
     return 0 if result.status == "SUCCESS" else 1
 

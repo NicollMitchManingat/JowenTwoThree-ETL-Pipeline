@@ -13,6 +13,7 @@ def test_mock_mode_uses_defaults() -> None:
     assert config.etl.timezone == "Asia/Manila"
     assert config.etl.staging_dir == Path("data/bronze")
     assert config.etl.log_dir == Path("data/logs")
+    assert config.etl.handover_dir == Path("data/handover")
     assert config.etl.retry_attempts == 3
     assert config.etl.retry_backoff_seconds == 2.0
     assert config.etl.log_level == "INFO"

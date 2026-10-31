@@ -18,6 +18,7 @@ def _config(tmp_path: Path):
             "ETL_MOCK_MODE": "true",
             "ETL_STAGING_DIR": str(tmp_path / "bronze"),
             "ETL_LOG_DIR": str(tmp_path / "logs"),
+            "ETL_HANDOVER_DIR": str(tmp_path / "handover"),
         }
     )
 
@@ -28,12 +29,15 @@ def test_mock_run_writes_parquet_and_log(tmp_path: Path) -> None:
     result = run_extraction(BUSINESS_DATE, config)
 
     assert result.status == "SUCCESS"
+    assert result.decision == "APPROVED"
     assert result.validation_passed is True
     assert set(result.parquet_paths) == set(TABLES)
     for path in result.parquet_paths.values():
         assert path.exists()
     assert result.log_path is not None
     assert result.log_path.exists()
+    assert result.handover_path is not None
+    assert result.handover_path.exists()
 
     payload = read_run_log(result.log_path)
     assert payload["pipeline_run_id"] == result.run_id
@@ -48,8 +52,10 @@ def test_dry_run_writes_nothing(tmp_path: Path) -> None:
     assert result.status == "SUCCESS"
     assert result.parquet_paths == {}
     assert result.log_path is None
+    assert result.handover_path is None
     assert not (tmp_path / "bronze").exists()
     assert not (tmp_path / "logs").exists()
+    assert not (tmp_path / "handover").exists()
 
 
 def test_rerun_overwrites_same_partition(tmp_path: Path) -> None:
