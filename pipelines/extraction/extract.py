@@ -10,7 +10,7 @@ import psycopg
 from pipelines.config import AppConfig
 
 from . import mock_data
-from .queries import inventory_query, sales_query
+from .queries import inventory_query, sales_query, traffic_query
 from .windows import business_day_window
 
 SALES_COLUMNS = [
@@ -24,6 +24,12 @@ INVENTORY_COLUMNS = [
     "item_id",
     "name",
     "stock_quantity",
+]
+
+TRAFFIC_COLUMNS = [
+    "entry_id",
+    "number_of_customer",
+    "created_at",
 ]
 
 
@@ -73,3 +79,24 @@ def extract_inventory(
         raise ValueError("A source connection is required when mock mode is disabled")
 
     return _run_query(connection, inventory_query())
+
+
+def extract_traffic(
+    business_date: date,
+    config: AppConfig,
+    connection: psycopg.Connection | None = None,
+) -> pd.DataFrame:
+    """Extract customer traffic records for a business date."""
+
+    if config.etl.mock_mode:
+        return mock_data.customer_traffic(business_date)[TRAFFIC_COLUMNS]
+
+    if connection is None:
+        raise ValueError("A source connection is required when mock mode is disabled")
+
+    window_start, window_end = business_day_window(business_date, config.etl.timezone)
+    return _run_query(
+        connection,
+        traffic_query(),
+        {"window_start": window_start, "window_end": window_end},
+    )
