@@ -12,7 +12,7 @@ SOURCE_COLUMNS: dict[str, dict[str, str]] = {
     "inventory": {
         "id": "item_id",
         "name": "name",
-        "stock quantity": "stock_quantity",
+        "stock_quantity": "stock_quantity",
     },
     "customer_traffic": {
         "id": "entry_id",

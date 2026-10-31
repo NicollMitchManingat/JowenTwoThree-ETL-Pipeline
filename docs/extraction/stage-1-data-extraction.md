@@ -102,10 +102,11 @@ The documented column names are codified in `pipelines/extraction/queries.py` an
 python -m pipelines.extraction.verify_schema
 ```
 
-Run this command with `ETL_MOCK_MODE=false` before the first production extraction. Two names remain provisional until verified:
+Run this command with `ETL_MOCK_MODE=false` before the first production extraction. The live schema was verified on 2026-11-01:
 
-- `inventory."stock quantity"` — a quoted identifier; confirm the exact source name.
-- `customer_traffic.id` — the documentation does not name the unique identifier.
+- `inventory.stock_quantity` — confirmed; the source column is `stock_quantity` (numeric).
+- `customer_traffic.id` — confirmed; the source primary key is `id` (bigint).
+- `transactions.id` — confirmed; the source primary key is `id` (uuid).
 
 ### Table 1: Sales Transactions
 
@@ -124,7 +125,7 @@ Run this command with `ETL_MOCK_MODE=false` before the first production extracti
 |---------------|-------------|
 | Name | `inventory` |
 | Purpose | Stores inventory information and records related to stock availability. |
-| Important columns and data types | `name` (text); stock quantity (numeric) |
+| Important columns and data types | `name` (text); `stock_quantity` (numeric) |
 | Primary key or unique identifier | `id` (UUID) |
 | Relevant relationships | The extracted inventory data contributes to `fact_inventory_summary`, which is linked to `dim_date` through `date_key` in the data warehouse. Source database relationships are not specified. |
 | Reason for inclusion | Required to determine the total number of inventory items, low-stock items, and out-of-stock items. |
@@ -136,7 +137,7 @@ Run this command with `ETL_MOCK_MODE=false` before the first production extracti
 | Name | `customer_traffic` |
 | Purpose | Stores records of customer entries and customer traffic activities. |
 | Important columns and data types | `number_of_customer` (integer); `created_at` (timestamptz) |
-| Primary key or unique identifier | The source table's unique customer-entry identifier; the actual column is not specified. |
+| Primary key or unique identifier | `id` (bigint) |
 | Relevant relationships | The extracted customer traffic data contributes to `fact_traffic_summary`, which is linked to `dim_date` through `date_key` in the data warehouse. Source database relationships are not specified. |
 | Reason for inclusion | Required to calculate the total number of recorded customer entries and identify peak customer-entry periods. |
 

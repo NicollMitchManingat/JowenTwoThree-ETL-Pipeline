@@ -29,11 +29,11 @@ def test_sales_query_can_skip_window() -> None:
     assert 'ORDER BY "created_at", "id"' in query
 
 
-def test_inventory_query_quotes_stock_quantity() -> None:
+def test_inventory_query_maps_stock_quantity() -> None:
     query = inventory_query()
 
     assert 'FROM "inventory"' in query
-    assert '"stock quantity" AS "stock_quantity"' in query
+    assert '"stock_quantity" AS "stock_quantity"' in query
     assert "%(window_start)s" not in query
 
 

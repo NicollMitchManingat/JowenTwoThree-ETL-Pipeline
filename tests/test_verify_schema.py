@@ -10,13 +10,13 @@ def test_compare_schema_passes_when_all_columns_exist() -> None:
 
 def test_compare_schema_reports_missing_column() -> None:
     actual = {table: set(columns) for table, columns in SOURCE_COLUMNS.items()}
-    actual["inventory"].remove("stock quantity")
+    actual["inventory"].remove("stock_quantity")
 
     issues = compare_schema(actual)
 
     assert len(issues) == 1
     assert issues[0].table == "inventory"
-    assert issues[0].column == "stock quantity"
+    assert issues[0].column == "stock_quantity"
     assert issues[0].problem == "column missing"
 
 
