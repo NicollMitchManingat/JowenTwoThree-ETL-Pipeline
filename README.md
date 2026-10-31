@@ -7,3 +7,27 @@ Source: Supabase PostgreSQL operational database → Python daily batch extracti
 ## Table of Contents
 
 - [Stage 1: Data Extraction](docs/extraction/stage-1-data-extraction.md)
+- [Stage 2: Data Transformation](docs/transformation/stage-2-data-transformation.md)
+
+## Setup
+
+Requires Python 3.11.
+
+```powershell
+py -3.11 -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env
+```
+
+The example environment enables mock mode (`ETL_MOCK_MODE=true`), which uses
+deterministic sample data and needs no database connection. Set
+`ETL_MOCK_MODE=false` and fill in the `SUPABASE_DB_*` values to read from the
+real source database.
+
+## Testing
+
+```powershell
+python -m pytest -q
+python -m ruff check .
+```
