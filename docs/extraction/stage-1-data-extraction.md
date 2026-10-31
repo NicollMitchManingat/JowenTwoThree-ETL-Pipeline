@@ -94,6 +94,19 @@ These limitations and assumptions will guide the implementation of the extractio
 
 The Jowen Two Three Batch ETL Pipeline extracts operational data from the Jowen Two Three web application, which uses Supabase PostgreSQL as its source database. The extraction focuses on three data categories: sales transactions, inventory activities, and customer traffic records. These data are required to generate business performance reports and populate the separate PostgreSQL data warehouse.
 
+### Schema Verification Status
+
+The documented column names are codified in `pipelines/extraction/queries.py` and checked against the live database by running:
+
+```powershell
+python -m pipelines.extraction.verify_schema
+```
+
+Run this command with `ETL_MOCK_MODE=false` before the first production extraction. Two names remain provisional until verified:
+
+- `inventory."stock quantity"` — a quoted identifier; confirm the exact source name.
+- `customer_traffic.id` — the documentation does not name the unique identifier.
+
 ### Table 1: Sales Transactions
 
 | Specification | Description |
