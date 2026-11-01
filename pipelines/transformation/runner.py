@@ -11,6 +11,11 @@ import pandas as pd
 from pipelines.config import AppConfig
 from pipelines.logging_setup import configure_logging
 
+from .acceptance import (
+    Decision,
+    decide,
+    write_handover_manifest,
+)
 from .cleaning import clean_inventory, clean_traffic, clean_transactions
 from .dimensions import build_dim_date, ensure_dim_date
 from .input import (
@@ -54,6 +59,7 @@ class TransformRunResult:
     quarantine_paths: dict[str, Path]
     log_path: Path | None
     decision: str | None = None
+    handover_path: Path | None = None
 
 
 def _dates(business_date: date, lookback_days: int) -> list[date]:
@@ -225,6 +231,16 @@ def run_transformation(
     else:
         status = "SUCCESS"
 
+    total_read = sum(count["read"] for count in counts.values())
+    total_rejected = sum(count["rejected"] for count in counts.values())
+    acceptance = decide(
+        report,
+        total_read,
+        total_rejected,
+        config.etl.rejection_warn_rate,
+        config.etl.rejection_fail_rate,
+    )
+
     finished = datetime.now(UTC)
     batch_window = f"{min(processed_dates)} to {max(processed_dates)}"
     entries = [
@@ -251,6 +267,20 @@ def run_transformation(
             config.etl.transform_log_dir, config.etl.log_retention_days
         )
 
+    handover_path: Path | None = None
+    if acceptance.decision is Decision.APPROVED and not dry_run:
+        handover_path = write_handover_manifest(
+            run_id,
+            resolved_parent,
+            business_date,
+            acceptance,
+            report,
+            silver_paths,
+            counts,
+            config.etl.handover_dir,
+            transform_status=status,
+        )
+
     return TransformRunResult(
         run_id=run_id,
         parent_run_id=resolved_parent,
@@ -260,5 +290,6 @@ def run_transformation(
         silver_paths=silver_paths,
         quarantine_paths=quarantine_paths,
         log_path=log_path,
-        decision=None,
+        decision=acceptance.decision.value,
+        handover_path=handover_path,
     )

@@ -65,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"{result.run_id} {result.business_date.isoformat()} "
         f"parent={result.parent_run_id} status={result.status} "
+        f"decision={result.decision} "
         f"validation={'PASS' if result.validation_passed else 'FAIL'}"
     )
     for name, path in result.silver_paths.items():
@@ -73,8 +74,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f" - quarantine {name}: {path}")
     if result.log_path is not None:
         print(f" log: {result.log_path}")
+    if result.handover_path is not None:
+        print(f" handover: {result.handover_path}")
 
-    return 0 if result.status in {"SUCCESS", "WARNING"} else 1
+    return 0 if result.decision == "APPROVED" else 1
 
 
 if __name__ == "__main__":
