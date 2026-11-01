@@ -62,20 +62,20 @@ def test_mock_transformation_writes_silver_quarantine_and_log(
     sales = read_silver(
         "fact_sales_summary", config.etl.silver_dir, BUSINESS_DATE
     )
-    assert sales.iloc[0]["total_sales"] == pytest.approx(2310.50)
-    assert sales.iloc[0]["total_orders"] == 5
+    assert sales.iloc[0]["total_sales"] == pytest.approx(3510.50)
+    assert sales.iloc[0]["total_orders"] == 125
 
     inventory = read_silver(
         "fact_inventory_summary", config.etl.silver_dir, BUSINESS_DATE
     )
-    assert inventory.iloc[0]["total_items"] == 5
+    assert inventory.iloc[0]["total_items"] == 14
     assert inventory.iloc[0]["low_stock_items"] == 3
     assert inventory.iloc[0]["out_of_stock_items"] == 1
 
     traffic = read_silver(
         "fact_traffic_summary", config.etl.silver_dir, BUSINESS_DATE
     )
-    assert traffic.iloc[0]["total_customers"] == 26
+    assert traffic.iloc[0]["total_customers"] == 60
     assert traffic.iloc[0]["peak_hour"] == "18:00:00"
 
     payload = read_transform_log(result.log_path)
@@ -128,9 +128,9 @@ def test_lookback_reprocesses_late_arriving_transaction(tmp_path: Path) -> None:
     current_sales = read_silver(
         "fact_sales_summary", config.etl.silver_dir, BUSINESS_DATE
     )
-    assert prior_sales.iloc[0]["total_sales"] == pytest.approx(2410.50)
-    assert prior_sales.iloc[0]["total_orders"] == 6
-    assert current_sales.iloc[0]["total_sales"] == pytest.approx(2310.50)
+    assert prior_sales.iloc[0]["total_sales"] == pytest.approx(3610.50)
+    assert prior_sales.iloc[0]["total_orders"] == 126
+    assert current_sales.iloc[0]["total_sales"] == pytest.approx(3510.50)
 
 
 def test_empty_business_date_writes_zero_value_facts(tmp_path: Path) -> None:

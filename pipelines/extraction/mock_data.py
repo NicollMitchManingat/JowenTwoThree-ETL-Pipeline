@@ -43,6 +43,15 @@ def transactions(business_date: date) -> pd.DataFrame:
             "total": 610.00,
         },
     ]
+    rows.extend(
+        {
+            "transaction_id": f"trx-auto-{index:04d}",
+            "created_at": base + pd.Timedelta(hours=6, minutes=5 * index),
+            "transaction_number": f"TRX-{2000 + index}",
+            "total": 10.00,
+        }
+        for index in range(120)
+    )
     return pd.DataFrame(rows)
 
 
@@ -57,6 +66,14 @@ def inventory() -> pd.DataFrame:
         {"item_id": "item-0005", "name": "Matcha Tea", "stock_quantity": 50},
         {"item_id": "item-0006", "name": "Bottled Water", "stock_quantity": 1},
     ]
+    rows.extend(
+        {
+            "item_id": f"item-{index:04d}",
+            "name": f"Extra Item {index}",
+            "stock_quantity": 10 + index,
+        }
+        for index in range(7, 16)
+    )
     return pd.DataFrame(rows)
 
 
@@ -91,6 +108,15 @@ def customer_traffic(business_date: date) -> pd.DataFrame:
             "created_at": base + pd.Timedelta(hours=21, minutes=40),
         },
     ]
+    rows.extend(
+        {
+            "entry_id": f"traffic-{index:04d}",
+            "number_of_customer": 2,
+            "created_at": base
+            + pd.Timedelta(hours=6 + index % 12, minutes=index),
+        }
+        for index in range(6, 23)
+    )
     frame = pd.DataFrame(rows)
     frame["number_of_customer"] = frame["number_of_customer"].astype("Int64")
     return frame

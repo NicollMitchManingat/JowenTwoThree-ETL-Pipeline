@@ -66,7 +66,7 @@ def test_rerun_overwrites_same_partition(tmp_path: Path) -> None:
 
     assert first.parquet_paths["transactions"] == second.parquet_paths["transactions"]
     staged = read_parquet("transactions", BUSINESS_DATE, config.etl.staging_dir)
-    assert len(staged) == 5
+    assert len(staged) == 125
     assert not staged["transaction_id"].duplicated().any()
 
 

@@ -12,7 +12,7 @@ def test_extract_traffic_in_mock_mode() -> None:
     frame = extract_traffic(BUSINESS_DATE, config)
 
     assert list(frame.columns) == TRAFFIC_COLUMNS
-    assert len(frame) == 5
+    assert len(frame) == 22
     assert frame["created_at"].dt.date.eq(BUSINESS_DATE).all()
     assert frame["number_of_customer"].isna().any()
 

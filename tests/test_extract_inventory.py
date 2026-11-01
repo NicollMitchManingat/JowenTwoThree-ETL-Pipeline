@@ -8,7 +8,7 @@ def test_extract_inventory_in_mock_mode() -> None:
     frame = extract_inventory(config)
 
     assert list(frame.columns) == INVENTORY_COLUMNS
-    assert len(frame) == 6
+    assert len(frame) == 15
     assert (frame["stock_quantity"] < 0).any()
     assert (frame["stock_quantity"] == 0).any()
 

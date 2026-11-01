@@ -16,7 +16,7 @@ def test_extract_sales_in_mock_mode() -> None:
     frame = extract_sales(BUSINESS_DATE, config)
 
     assert list(frame.columns) == SALES_COLUMNS
-    assert len(frame) == 5
+    assert len(frame) == 125
     assert frame["created_at"].dt.date.eq(BUSINESS_DATE).all()
 
 

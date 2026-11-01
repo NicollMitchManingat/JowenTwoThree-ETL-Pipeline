@@ -23,7 +23,7 @@ def test_transactions_columns_and_values() -> None:
         "transaction_number",
         "total",
     ]
-    assert len(frame) == 5
+    assert len(frame) == 125
     assert frame["created_at"].dt.date.eq(BUSINESS_DATE).all()
     assert frame.loc[0, "transaction_number"] == "  TRX-1001  "
 

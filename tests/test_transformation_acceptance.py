@@ -131,11 +131,41 @@ def test_handover_blocked_for_manual_review(tmp_path: Path) -> None:
         )
 
 
-def test_runner_rejects_mock_batch_with_high_rejection_rate(
+def test_runner_approves_mock_batch(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    assert run_extraction(BUSINESS_DATE, config).status == "SUCCESS"
+
+    result = run_transformation(BUSINESS_DATE, config)
+
+    assert result.status == "SUCCESS"
+    assert result.decision == Decision.APPROVED.value
+    assert result.handover_path is not None
+    assert result.handover_path.exists()
+
+
+def test_runner_rejects_batch_with_high_rejection_rate(
     tmp_path: Path,
 ) -> None:
     config = _config(tmp_path)
     assert run_extraction(BUSINESS_DATE, config).status == "SUCCESS"
+
+    rejected_inventory = pd.DataFrame(
+        [
+            {
+                "item_id": f"item-bad-{index}",
+                "name": "Bad Item",
+                "stock_quantity": -1,
+            }
+            for index in range(10)
+        ],
+        columns=INVENTORY_COLUMNS,
+    )
+    write_parquet(
+        rejected_inventory,
+        "inventory",
+        BUSINESS_DATE,
+        config.etl.staging_dir,
+    )
 
     result = run_transformation(BUSINESS_DATE, config)
 
