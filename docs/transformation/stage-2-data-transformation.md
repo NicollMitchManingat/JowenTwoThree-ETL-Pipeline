@@ -5,12 +5,12 @@
 ### Input Source
 
 - Name of Extraction Output / Staging Area: Staged records from Stage 1 extraction run (transactions, inventory, and customer_traffic).
-- Format and Location: Structured rows queried from the Supabase PostgreSQL operational database, handed over in-memory/staging context to the transformation script.
+- Format and Location: Structured rows queried from the Supabase PostgreSQL operational database, sealed in version-2 run-specific Parquet packages and checksummed JSON manifests.
 - Extraction Run ID & Batch Window: Linked via extraction run ID Run_20261013_001 covering the previous business day window (2026-10-12 00:00:00 to 23:59:59).
 
 ### Batch Processing Method
 
-- Transformation Tool/Technology: SQL for data transformation and aggregation, orchestrated via Python scripts.
+- Transformation Tool/Technology: Python/pandas transformations with exact Decimal arithmetic.
 - Batch Frequency & Schedule: Daily batch processing executed right after business operations conclude (e.g., daily at 02:00).
 - Batch Size / Window: All operational records extracted from the previous 24-hour business day window.
 - Failure Handling & Idempotency: Reruns are fully idempotent. Using batch date keys and upsert/delete-and-insert logic by batch ID ensures that running the same transformation batch multiple times yields identical results without creating duplicate rows. Failed batches trigger a pipeline hold, allowing operators to fix issues and safely retry the execution.

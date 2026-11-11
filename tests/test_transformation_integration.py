@@ -66,3 +66,49 @@ def test_cli_dry_run_writes_no_transformation_output(
     assert not (tmp_path / "quarantine").exists()
     assert not (tmp_path / "logs" / "transformation").exists()
     assert not list((tmp_path / "handover").glob("Transform_*"))
+
+
+
+def test_v2_packages_are_immutable_and_detect_changed_input(tmp_path):
+    import pytest
+
+    from pipelines.artifacts import read_package
+    from pipelines.extraction.batch import stage_extraction
+    from pipelines.transformation.batch import transform_batch
+
+    config = load_config({"ETL_MOCK_MODE": "true", "ETL_STAGING_DIR": str(tmp_path / "bronze"),
+                          "ETL_SILVER_DIR": str(tmp_path / "silver")})
+    first = stage_extraction(date(2026, 10, 15), date(2026, 10, 16), config)
+    second = stage_extraction(date(2026, 10, 15), date(2026, 10, 16), config)
+    assert first != second
+    output = transform_batch(first, config)
+    manifest, frames = read_package(output, "transformation")
+    assert manifest["decision"] == "APPROVED"
+    assert len(frames["fact_sales_summary"]) == 2
+    assert len(frames["fact_traffic_summary"]) == 2
+    snapshot = frames["fact_inventory_summary"].iloc[0]
+    assert str(snapshot["snapshot_at"].date()).replace("-", "") == str(snapshot["date_key"])
+    raw_manifest, _ = read_package(first, "extraction")
+    target = first.parent / raw_manifest["tables"]["transactions"]["path"]
+    original = target.read_bytes()
+    target.write_bytes(original + b"changed")
+    with pytest.raises(ValueError, match="checksum"):
+        transform_batch(first, config)
+    read_package(second, "extraction")  # The other run remains intact.
+
+
+def test_v2_stage2_holds_financial_rejections(tmp_path):
+    from pipelines.artifacts import read_package, write_package
+    from pipelines.extraction.batch import extract_batch
+    from pipelines.transformation.batch import transform_batch
+    config = load_config({"ETL_MOCK_MODE": "true", "ETL_STAGING_DIR": str(tmp_path / "bronze"),
+                          "ETL_SILVER_DIR": str(tmp_path / "silver")})
+    raw, capture = extract_batch(date(2026, 10, 16), date(2026, 10, 16), config)
+    raw["transactions"]["total"] = raw["transactions"]["total"].astype(str)
+    raw["transactions"].loc[0, "total"] = "invalid"
+    source = write_package(config.etl.staging_dir, "Run_bad_money", "extraction", raw,
+                           {"dates": ["2026-10-16"], "snapshot_at": capture.isoformat(),
+                            "source_mode": "mock"})
+    output = transform_batch(source, config)
+    result, _ = read_package(output, "transformation", approved=False)
+    assert result["decision"] == "REJECTED"

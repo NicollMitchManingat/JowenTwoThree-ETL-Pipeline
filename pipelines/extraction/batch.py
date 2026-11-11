@@ -81,3 +81,18 @@ def validate_inventory(frame: pd.DataFrame) -> None:
             raise TypeError("inventory is_active must be boolean")
         if decimal_value(row["low_stock_threshold"]) < 0:
             raise ValueError("inventory threshold must be nonnegative")
+
+
+def stage_extraction(start: date, end: date, config: AppConfig,
+                     dry_run: bool = False):
+    """Capture a bounded source window into a new immutable run package."""
+    from pipelines.artifacts import new_id, write_package
+
+    frames, captured = extract_batch(start, end, config)
+    metadata = {"dates": [d.isoformat() for d in dates_between(start, end)],
+                "snapshot_at": captured.isoformat(),
+                "source_mode": "mock" if config.etl.mock_mode else "live",
+                "validation_results": {"source_types": "PASS", "source_counts": "PASS"}}
+    if dry_run:
+        return dict(metadata, output_counts={key: len(value) for key, value in frames.items()})
+    return write_package(config.etl.staging_dir, new_id("Run"), "extraction", frames, metadata)
