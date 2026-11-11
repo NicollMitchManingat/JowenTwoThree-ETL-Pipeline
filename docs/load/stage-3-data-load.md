@@ -38,12 +38,253 @@
 
 ## 2. Target Tables and Column Specification
 
-| Table | Type | Primary Key | Foreign Keys | Key Constraints | Purpose |
-| --- | --- | --- | --- | --- | --- |
-| dim_date | Dimension | date_key | None | full_date NOT NULL, UNIQUE | Calendar date dimension for time-series aggregation. |
-| fact_sales_summary | Fact | sales_summary_key | date_key→dim_date.date_key | total_orders≥0; total_sales≥0.00 | Daily aggregated sales metrics and transaction totals. |
-| fact_inventory_summary | Fact | inventory_summary_key | date_key→dim_date.date_key | total_items≥0; low_stock_items≥0; out_of_stock_items≥0 | Daily stock level summary and replenishment alerts. |
-| fact_traffic_summary | Fact | traffic_summary_key | date_key→dim_date.date_key | total_customers≥0 | Daily total customer count and peak traffic hour. |
+All targets are in the separate local database schema `dw_analytics`. The following specification is verified against the local PostgreSQL catalog. The SQL files in `warehouse/` are the setup contract.
+
+Stage 2 handover columns match their mandatory target names and types. Stage 3 adds source_run_id and source_created_at for lineage on facts. Batch identity lives in load_batches/load_log, linked through the transformation run; it is not a fact-grain key. Calendar attributes do not need SCD Type 2 history. Daily facts use replacement/upsert semantics, while immutable run packages retain prior versions.
+
+### dim_date
+
+Calendar dimension, matched by date_key; full_date is unique.
+
+| Column | PostgreSQL type | Required | Default |
+| --- | --- | --- | --- |
+| `date_key` | `integer` | Yes | `?` |
+| `full_date` | `date` | Yes | `?` |
+| `day_of_month` | `smallint` | Yes | `?` |
+| `month` | `smallint` | Yes | `?` |
+| `month_name` | `text` | Yes | `?` |
+| `quarter` | `smallint` | Yes | `?` |
+| `year` | `smallint` | Yes | `?` |
+| `day_of_week` | `smallint` | Yes | `?` |
+| `day_name` | `text` | Yes | `?` |
+| `is_weekend` | `boolean` | Yes | `?` |
+
+**Keys and constraints:**
+
+- `PRIMARY KEY (date_key)`
+- `UNIQUE (full_date)`
+
+**Indexes:**
+
+- `CREATE UNIQUE INDEX dim_date_full_date_key ON dw_analytics.dim_date USING btree (full_date)`
+- `CREATE UNIQUE INDEX dim_date_pkey ON dw_analytics.dim_date USING btree (date_key)`
+
+### fact_sales_summary
+
+One paid-sales/refund/net summary per Manila business date.
+
+| Column | PostgreSQL type | Required | Default |
+| --- | --- | --- | --- |
+| `sales_summary_key` | `text` | Yes | `?` |
+| `date_key` | `integer` | Yes | `?` |
+| `total_sales` | `numeric(18,2)` | Yes | `?` |
+| `refund_amount` | `numeric(18,2)` | Yes | `?` |
+| `net_sales` | `numeric(18,2)` | Yes | `?` |
+| `total_orders` | `bigint` | Yes | `?` |
+| `source_run_id` | `text` | No | `?` |
+| `source_created_at` | `timestamp with time zone` | Yes | `'-infinity'::timestamp with time zone` |
+| `loaded_at` | `timestamp with time zone` | Yes | `now()` |
+
+**Keys and constraints:**
+
+- `CHECK ((net_sales = (total_sales - refund_amount)))`
+- `CHECK ((refund_amount >= (0)::numeric))`
+- `CHECK ((total_orders >= 0))`
+- `CHECK ((total_sales >= (0)::numeric))`
+- `FOREIGN KEY (date_key) REFERENCES dw_analytics.dim_date(date_key)`
+- `PRIMARY KEY (sales_summary_key)`
+- `UNIQUE (date_key)`
+
+**Indexes:**
+
+- `CREATE UNIQUE INDEX fact_sales_summary_date_key_key ON dw_analytics.fact_sales_summary USING btree (date_key)`
+- `CREATE UNIQUE INDEX fact_sales_summary_pkey ON dw_analytics.fact_sales_summary USING btree (sales_summary_key)`
+- `CREATE INDEX idx_fact_sales_summary_date_key ON dw_analytics.fact_sales_summary USING btree (date_key)`
+
+### fact_inventory_summary
+
+One active-inventory observation per actual capture date; no historical reconstruction.
+
+| Column | PostgreSQL type | Required | Default |
+| --- | --- | --- | --- |
+| `inventory_summary_key` | `text` | Yes | `?` |
+| `date_key` | `integer` | Yes | `?` |
+| `total_items` | `bigint` | Yes | `?` |
+| `low_stock_items` | `bigint` | Yes | `?` |
+| `out_of_stock_items` | `bigint` | Yes | `?` |
+| `threshold_policy` | `text` | Yes | `?` |
+| `snapshot_at` | `timestamp with time zone` | Yes | `?` |
+| `source_run_id` | `text` | No | `?` |
+| `source_created_at` | `timestamp with time zone` | Yes | `'-infinity'::timestamp with time zone` |
+| `loaded_at` | `timestamp with time zone` | Yes | `now()` |
+
+**Keys and constraints:**
+
+- `CHECK (((low_stock_items + out_of_stock_items) <= total_items))`
+- `CHECK ((low_stock_items >= 0))`
+- `CHECK ((out_of_stock_items >= 0))`
+- `CHECK ((threshold_policy = 'PER_ITEM'::text))`
+- `CHECK ((total_items >= 0))`
+- `FOREIGN KEY (date_key) REFERENCES dw_analytics.dim_date(date_key)`
+- `PRIMARY KEY (inventory_summary_key)`
+- `UNIQUE (date_key)`
+
+**Indexes:**
+
+- `CREATE UNIQUE INDEX fact_inventory_summary_date_key_key ON dw_analytics.fact_inventory_summary USING btree (date_key)`
+- `CREATE UNIQUE INDEX fact_inventory_summary_pkey ON dw_analytics.fact_inventory_summary USING btree (inventory_summary_key)`
+- `CREATE INDEX idx_fact_inventory_summary_date_key ON dw_analytics.fact_inventory_summary USING btree (date_key)`
+
+### fact_traffic_summary
+
+One customer-traffic total and peak hour per business date.
+
+| Column | PostgreSQL type | Required | Default |
+| --- | --- | --- | --- |
+| `traffic_summary_key` | `text` | Yes | `?` |
+| `date_key` | `integer` | Yes | `?` |
+| `total_customers` | `bigint` | Yes | `?` |
+| `peak_hour` | `time without time zone` | No | `?` |
+| `source_run_id` | `text` | No | `?` |
+| `source_created_at` | `timestamp with time zone` | Yes | `'-infinity'::timestamp with time zone` |
+| `loaded_at` | `timestamp with time zone` | Yes | `now()` |
+
+**Keys and constraints:**
+
+- `CHECK ((total_customers >= 0))`
+- `FOREIGN KEY (date_key) REFERENCES dw_analytics.dim_date(date_key)`
+- `PRIMARY KEY (traffic_summary_key)`
+- `UNIQUE (date_key)`
+
+**Indexes:**
+
+- `CREATE UNIQUE INDEX fact_traffic_summary_date_key_key ON dw_analytics.fact_traffic_summary USING btree (date_key)`
+- `CREATE UNIQUE INDEX fact_traffic_summary_pkey ON dw_analytics.fact_traffic_summary USING btree (traffic_summary_key)`
+- `CREATE INDEX idx_fact_traffic_summary_date_key ON dw_analytics.fact_traffic_summary USING btree (date_key)`
+
+### load_batches
+
+Success-only identity ledger; a batch and transformation run may succeed only once.
+
+| Column | PostgreSQL type | Required | Default |
+| --- | --- | --- | --- |
+| `batch_id` | `text` | Yes | `?` |
+| `transformation_run_id` | `text` | Yes | `?` |
+| `manifest_sha256` | `text` | Yes | `?` |
+| `load_run_id` | `text` | Yes | `?` |
+| `source_created_at` | `timestamp with time zone` | Yes | `?` |
+| `business_dates` | `date[]` | Yes | `?` |
+| `loaded_at` | `timestamp with time zone` | Yes | `now()` |
+
+**Keys and constraints:**
+
+- `PRIMARY KEY (batch_id)`
+- `UNIQUE (load_run_id)`
+- `UNIQUE (transformation_run_id)`
+
+**Indexes:**
+
+- `CREATE UNIQUE INDEX load_batches_load_run_id_key ON dw_analytics.load_batches USING btree (load_run_id)`
+- `CREATE UNIQUE INDEX load_batches_pkey ON dw_analytics.load_batches USING btree (batch_id)`
+- `CREATE UNIQUE INDEX load_batches_transformation_run_id_key ON dw_analytics.load_batches USING btree (transformation_run_id)`
+
+### load_log
+
+Per-table load attempt audit and exact committed-row accounting.
+
+| Column | PostgreSQL type | Required | Default |
+| --- | --- | --- | --- |
+| `load_run_id` | `text` | Yes | `?` |
+| `transformation_run_id` | `text` | Yes | `?` |
+| `batch_id` | `text` | Yes | `?` |
+| `batch_window` | `text` | Yes | `?` |
+| `table_name` | `text` | Yes | `?` |
+| `load_type` | `text` | Yes | `'INCREMENTAL'::text` |
+| `load_start_ts` | `timestamp with time zone` | Yes | `?` |
+| `load_end_ts` | `timestamp with time zone` | Yes | `?` |
+| `load_duration_sec` | `numeric(12,3)` | Yes | `?` |
+| `records_received` | `bigint` | Yes | `?` |
+| `records_inserted` | `bigint` | Yes | `?` |
+| `records_updated` | `bigint` | Yes | `?` |
+| `records_loaded` | `bigint` | Yes | `?` |
+| `records_rejected` | `bigint` | Yes | `?` |
+| `pre_load_result` | `jsonb` | Yes | `?` |
+| `post_load_result` | `jsonb` | Yes | `?` |
+| `status` | `text` | Yes | `?` |
+| `error_code` | `text` | No | `?` |
+| `error_message` | `text` | No | `?` |
+| `load_code_version` | `text` | Yes | `?` |
+| `details` | `jsonb` | Yes | `'{}'::jsonb` |
+| `created_at` | `timestamp with time zone` | Yes | `now()` |
+
+**Keys and constraints:**
+
+- `CHECK ((records_loaded = (records_inserted + records_updated)))`
+- `CHECK (((status = 'SKIPPED'::text) OR (records_received = (records_loaded + records_rejected))))`
+- `CHECK ((load_duration_sec >= (0)::numeric))`
+- `CHECK ((load_type = 'INCREMENTAL'::text))`
+- `CHECK ((records_inserted >= 0))`
+- `CHECK ((records_received >= 0))`
+- `CHECK ((records_rejected >= 0))`
+- `CHECK ((records_updated >= 0))`
+- `CHECK ((status = ANY (ARRAY['SUCCESS'::text, 'FAILED'::text, 'MANUAL_REVIEW'::text, 'SKIPPED'::text])))`
+- `PRIMARY KEY (load_run_id, table_name)`
+
+**Indexes:**
+
+- `CREATE INDEX load_log_batch_idx ON dw_analytics.load_log USING btree (batch_id, status)`
+- `CREATE UNIQUE INDEX load_log_pkey ON dw_analytics.load_log USING btree (load_run_id, table_name)`
+
+### load_quarantine
+
+Rejected target payloads retained independently of rolled-back publication.
+
+| Column | PostgreSQL type | Required | Default |
+| --- | --- | --- | --- |
+| `quarantine_id` | `bigint` | Yes | `nextval('dw_analytics.load_quarantine_quarantine_id_seq'::regclass)` |
+| `load_run_id` | `text` | Yes | `?` |
+| `table_name` | `text` | Yes | `?` |
+| `reason` | `text` | Yes | `?` |
+| `payload` | `jsonb` | Yes | `?` |
+| `rejected_at` | `timestamp with time zone` | Yes | `now()` |
+
+**Keys and constraints:**
+
+- `PRIMARY KEY (quarantine_id)`
+
+**Indexes:**
+
+- `CREATE UNIQUE INDEX load_quarantine_pkey ON dw_analytics.load_quarantine USING btree (quarantine_id)`
+
+### transformation_quarantine
+
+Upstream rejections copied for audit, excluded from loader received-row counts.
+
+| Column | PostgreSQL type | Required | Default |
+| --- | --- | --- | --- |
+| `quarantine_id` | `bigint` | Yes | `nextval('dw_analytics.transformation_quarantine_quarantine_id_seq'::regclass)` |
+| `run_id` | `text` | Yes | `?` |
+| `parent_run_id` | `text` | No | `?` |
+| `source_table` | `text` | Yes | `?` |
+| `source_record_id` | `text` | No | `?` |
+| `rule_id` | `text` | Yes | `?` |
+| `error_code` | `text` | Yes | `?` |
+| `reason` | `text` | Yes | `?` |
+| `payload` | `jsonb` | Yes | `?` |
+| `rejected_at` | `timestamp with time zone` | Yes | `now()` |
+
+**Keys and constraints:**
+
+- `PRIMARY KEY (quarantine_id)`
+- `UNIQUE (run_id, source_table, rule_id, source_record_id)`
+
+**Indexes:**
+
+- `CREATE INDEX idx_quarantine_run_id ON dw_analytics.transformation_quarantine USING btree (run_id)`
+- `CREATE UNIQUE INDEX transformation_quarantine_pkey ON dw_analytics.transformation_quarantine USING btree (quarantine_id)`
+- `CREATE UNIQUE INDEX transformation_quarantine_run_id_source_table_rule_id_sourc_key ON dw_analytics.transformation_quarantine USING btree (run_id, source_table, rule_id, source_record_id)`
+
+The earlier transformation_run_log table is retained for legacy compatibility; version-2 transformation lineage and validation are stored in sealed manifests. The current loader writes load_log and the success ledger.
 
 ## 3. Load Strategy and Rules
 
