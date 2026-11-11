@@ -105,3 +105,40 @@ def test_rejection_rates_must_be_ordered() -> None:
                 "ETL_REJECTION_FAIL_RATE": "0.05",
             }
         )
+
+
+def test_live_pipeline_uses_local_profile_and_ignores_cancelled_hosted_profile(tmp_path, monkeypatch):
+    import os
+
+    from pipelines.load.target import warehouse_config
+    from pipelines.run import configuration
+
+    monkeypatch.chdir(tmp_path)
+    for key in list(os.environ):
+        if key.startswith(("WAREHOUSE_", "ETL_")):
+            monkeypatch.delenv(key)
+    (tmp_path / ".env").write_text("ETL_MOCK_MODE=true\nWAREHOUSE_DB_PASSWORD=\n")
+    (tmp_path / ".env.warehouse.local").write_text(
+        "WAREHOUSE_DB_HOST=127.0.0.1\nWAREHOUSE_DB_NAME=jowen_analytics\n"
+        "WAREHOUSE_DB_USER=jowen_etl_local\nWAREHOUSE_DB_PASSWORD=local-secret\n")
+    (tmp_path / ".env.warehouse").write_text(
+        "WAREHOUSE_DB_HOST=db.cancelled.supabase.co\nWAREHOUSE_DB_PASSWORD=hosted-secret\n")
+    monkeypatch.setenv("WAREHOUSE_CONFIG_FILE", ".env.warehouse")
+    config = configuration()
+    target = warehouse_config()
+    assert config.etl.mock_mode
+    assert "WAREHOUSE_DB_PASSWORD" not in os.environ
+    assert target.host == "127.0.0.1"
+    assert target.dbname == "jowen_analytics"
+    assert target.password == "local-secret"
+    assert "local-secret" not in repr(target)
+
+
+def test_local_warehouse_rejects_remote_environment_override(tmp_path, monkeypatch):
+    from pipelines.load.target import warehouse_config
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env.warehouse.local").write_text("WAREHOUSE_DB_PASSWORD=local-secret\n")
+    monkeypatch.setenv("WAREHOUSE_DB_HOST", "db.cancelled.supabase.co")
+    with pytest.raises(ValueError, match="local PostgreSQL only"):
+        warehouse_config()

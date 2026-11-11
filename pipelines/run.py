@@ -12,7 +12,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import psycopg
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 from pipelines.artifacts import new_id, write_json
 from pipelines.config import ConfigError, load_config
@@ -30,8 +30,7 @@ TRANSIENT_CODES = {"OperationalError", "SerializationFailure", "DeadlockDetected
 
 
 def configuration(demo: bool = False):
-    load_dotenv()
-    env = dict(os.environ)
+    env = {**dotenv_values(".env"), **os.environ}
     if demo:
         env["ETL_MOCK_MODE"] = "true"
     return load_config(env)

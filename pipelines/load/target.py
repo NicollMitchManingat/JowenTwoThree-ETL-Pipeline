@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import psycopg
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 
 @dataclass(frozen=True)
@@ -31,8 +31,9 @@ class WarehouseConfig:
 
 def warehouse_config(env: Mapping[str, str] | None = None) -> WarehouseConfig:
     if env is None:
-        load_dotenv(".env.warehouse.local")
-        env = os.environ
+        env = {**dotenv_values(".env.warehouse.local"),
+               **{key: value for key, value in os.environ.items() if key.startswith("WAREHOUSE_DB_")
+                  or key in {"WAREHOUSE_STORAGE_PATH", "WAREHOUSE_MINIMUM_FREE_BYTES", "WAREHOUSE_ALLOW_DEMO"}}}
     password = env.get("WAREHOUSE_DB_PASSWORD", "")
     if not password:
         raise ValueError("WAREHOUSE_DB_PASSWORD is required; source credentials are never reused")
@@ -46,4 +47,6 @@ def warehouse_config(env: Mapping[str, str] | None = None) -> WarehouseConfig:
         allow_demo=env.get("WAREHOUSE_ALLOW_DEMO", "false").lower() == "true")
     if config.minimum_free_bytes < 0 or config.port < 1 or config.port > 65535:
         raise ValueError("invalid warehouse storage threshold or port")
+    if config.host not in {"127.0.0.1", "localhost", "::1"}:
+        raise ValueError("this warehouse deployment supports local PostgreSQL only")
     return config

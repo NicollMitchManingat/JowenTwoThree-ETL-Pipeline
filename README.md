@@ -17,6 +17,8 @@ Copy-Item .env.example .env
 
 The portable Windows setup listens only on 127.0.0.1:55432, initializes jowen_analytics and jowen_analytics_demo, and creates independent credentials in .env.warehouse.local. It does not install a system service. For live reads, set ETL_MOCK_MODE=false and configure the source SUPABASE_DB_* values in .env. Never reuse POS credentials as warehouse credentials.
 
+The warehouse is local for both live reporting and demos. Its default profile is .env.warehouse.local; .env.warehouse and .env.warehouse.admin are ignored by the pipeline. Supabase remains the read-only POS source. Explicit WAREHOUSE_DB_* environment variables override the local profile, but remote warehouse hosts are rejected.
+
 ## Run
 
 ~~~powershell
@@ -27,7 +29,7 @@ The portable Windows setup listens only on 127.0.0.1:55432, initializes jowen_an
 .\.venv\Scripts\python.exe -B -m pipelines.run
 
 # Explicit inclusive historical date range.
-.\.venv\Scripts\python.exe -B -m pipelines.run --start-date 2026-11-01 --end-date 2026-11-10
+.\.venv\Scripts\python.exe -B -m pipelines.run --start-date 2026-07-15 --end-date 2026-11-10
 
 # Read/validate without writing artifacts or warehouse rows.
 .\.venv\Scripts\python.exe -B -m pipelines.run --demo --date 2026-11-10 --dry-run
@@ -35,11 +37,14 @@ The portable Windows setup listens only on 127.0.0.1:55432, initializes jowen_an
 
 Inventory records its actual capture date, even when sales/traffic are backfilled. It preserves exact quantities and per-item thresholds. Reports keep transaction totals, refunds and net revenue separate.
 
+For a complete historical backfill, use the earliest source business date through yesterday in Asia/Manila. The example above covers the source history observed on November 11, 2026. This warehouse stores daily sales, refund, traffic and inventory reporting summaries; retained bronze packages contain the source rows used to build them. Current-day sales/traffic wait until the business day is complete. Start an existing local database with .\.venv\Scripts\python.exe -B tools/local_warehouse.py before running; the daily wrapper starts it automatically.
+
 ## Documentation
 
 - [Stage 1: Extraction](docs/extraction/stage-1-data-extraction.md)
 - [Stage 2: Transformation](docs/transformation/stage-2-data-transformation.md)
 - [Stage 3: Load specification](docs/load/stage-3-data-load.md)
+- [Verified local historical backfill](docs/load/local-backfill-2026-11-11.md)
 - [Scheduling, review, retries, retention and recovery](docs/extraction/scheduling.md)
 
 The optional daily task registration script is tools/install_daily_task.ps1; registration requires a separate explicit system action. The implemented pipeline is batch only. POS dashboards and real-time synchronization are outside this repository.
