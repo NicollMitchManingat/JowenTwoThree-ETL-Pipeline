@@ -90,11 +90,13 @@
 | records_received | Total rows handed over from transformation | 1 |
 | records_inserted | New rows written to target table | 1 |
 | records_updated | Existing rows updated via idempotent overwrite | 0 |
+| records_loaded | records_inserted + records_updated, committed rows only | 1 |
 | records_rejected | Rows failing target write constraints | 0 |
 | pre_load_result | Outcome of pre-load checks (PASS / FAIL) | PASS |
 | post_load_result | Outcome of post-load reconciliation checks (PASS / FAIL) | PASS |
 | status | Execution status (SUCCESS / FAILED / WARNING) | SUCCESS |
 | error_code | Categorized error code if failed | NULL |
+| error_message | Diagnostic reason without credentials | NULL |
 | load_code_version | Version control tag of the loading script | v1.2.0 |
 
 ## 7. Log Retention, Rejected Data, and Access
@@ -160,3 +162,7 @@ Dimensions, facts, source lineage, the success ledger and SUCCESS load logs comm
 ### Role boundary (issue #29)
 
 The POS connection is always read-only. Warehouse credentials are independent WAREHOUSE_DB_* settings, stored locally in gitignored .env.warehouse.local. The setup owner creates schema and roles. The routine local login inherits etl_warehouse_writer. etl_reporting_reader has SELECT only on dim_date and the three facts, not logs/quarantine. etl_warehouse_maintainer has SELECT/DELETE on log and quarantine tables for approved retention work, not business fact deletion. Public schema access is revoked; runtime never applies DDL.
+
+### Load accounting contract (issue #30)
+
+Counts refer only to final dimension/fact rows handed to Stage 3, never source rows or transformation rejections. For processed attempts, received = inserted + updated + rejected and loaded = inserted + updated. A rolled-back attempt has loaded/inserted/updated zero and rejected=received. An identical successful replay has status SKIPPED and zero processed counts, linked to the original successful batch. Per-table load_log rows include pre/post validation details, exact financial audit totals, UTC timestamps, duration, code version, error code and message. The separate load_batches ledger contains only committed successful identities. Local failure JSON and retained run packages remain available if the database cannot record its log.
