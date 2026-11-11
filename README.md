@@ -7,3 +7,4 @@ Source: Supabase PostgreSQL operational database → Python daily batch extracti
 ## Table of Contents
 
 - [Stage 1: Data Extraction](docs/extraction/stage-1-data-extraction.md)
+- [Stage 2: Data Transformation](docs/transformation/stage-2-data-transformation.md)
