@@ -112,3 +112,47 @@ def test_v2_stage2_holds_financial_rejections(tmp_path):
     output = transform_batch(source, config)
     result, _ = read_package(output, "transformation", approved=False)
     assert result["decision"] == "REJECTED"
+
+
+
+def test_local_warehouse_rolls_back_postload_failure(tmp_path, monkeypatch):
+    import os
+    from dataclasses import replace
+
+    import pytest
+
+    from pipelines.extraction.batch import stage_extraction
+    from pipelines.load import runner
+    from pipelines.load.target import warehouse_config
+    from pipelines.transformation.batch import transform_batch
+
+    database = os.environ.get("WAREHOUSE_TEST_DATABASE")
+    if not database:
+        pytest.skip("set WAREHOUSE_TEST_DATABASE to a prepared local demo/test database")
+    assert database.endswith(("_test", "_demo")), "never run destructive fault tests on reporting data"
+    target = replace(warehouse_config(), dbname=database, allow_demo=True)
+    config = load_config({"ETL_MOCK_MODE": "true", "ETL_STAGING_DIR": str(tmp_path / "bronze"),
+                          "ETL_SILVER_DIR": str(tmp_path / "silver")})
+    source = stage_extraction(date(2026, 10, 16), date(2026, 10, 16), config)
+    initial = transform_batch(source, config)
+    assert runner.load_batch(initial, target, tmp_path / "logs")["status"] == "SUCCESS"
+
+    def contents():
+        with target.connect() as connection:
+            return {table: connection.execute(
+                f"SELECT row_to_json(t)::text FROM dw_analytics.{table} t ORDER BY date_key").fetchall()
+                    for table in runner.TABLES}
+
+    before = contents()
+    correction = transform_batch(source, config)
+    def reject_after_writes(connection, frames):
+        raise ValueError("simulated post-load financial mismatch")
+    monkeypatch.setattr(runner, "validate_loaded", reject_after_writes)
+    result = runner.load_batch(correction, target, tmp_path / "logs")
+    assert result["status"] == "FAILED"
+    assert contents() == before
+    assert (tmp_path / "logs" / (result["load_run_id"] + ".json")).exists()
+    assert all(c["loaded"] == 0 and c["rejected"] == c["received"] for c in result["tables"].values())
+    with target.connect() as connection:
+        assert connection.execute("SELECT count(*) FROM dw_analytics.load_log WHERE load_run_id=%s AND status='FAILED'",
+                                  (result["load_run_id"],)).fetchone()[0] == 4
