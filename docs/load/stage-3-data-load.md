@@ -12,7 +12,7 @@
 
 - Target System Name & Purpose: Jowen Two Three Analytics Data Warehouse, dedicated to storing historical summaries of sales, inventory, and customer traffic for daily, weekly, and monthly business performance reporting without impacting operational performance.
 
-- Database Management System (DBMS): PostgreSQL DBMS (hosted separately from the operational Supabase PostgreSQL DB).
+- Database Management System (DBMS): Separate local PostgreSQL 17 database jowen_analytics on loopback port 55432. Sample data uses the independent jowen_analytics_demo database.
 
 - Target Schema: dw_analytics (data warehouse reporting schema).
 
@@ -32,7 +32,7 @@
 
 **Limitations and Assumptions**
 
-- Write Access & Role: The load process operates under a restricted database role (etl_warehouse_writer) with SELECT, INSERT, UPDATE and DELETE privileges on the dw_analytics schema. Administrative privileges (e.g., DROP TABLE, schema alterations) are strictly prohibited.
+- Write Access & Role: The load process operates under a restricted database role (etl_warehouse_writer) with USAGE on dw_analytics, SELECT/INSERT/UPDATE on warehouse tables, and sequence USAGE/SELECT. It has no schema CREATE or fact DELETE. Administrative privileges (e.g., DROP TABLE, schema alterations) are strictly prohibited.
 
 - Operational Boundary: Loading occurs off-peak (04:00 AM) to eliminate target warehouse table locking during operational hours. Data loaded is strictly limited to the dataset handed over from Stage 2 without re-extracting or re-transforming.
 
@@ -109,7 +109,7 @@
 
 **Access Permissions & Governance**
 
-- ETL Service Role (etl_warehouse_writer): Write-only access to write data rows and append logs.
+- ETL Service Role (etl_warehouse_writer): USAGE plus SELECT, INSERT and UPDATE for upserts, validation and load logs; no DDL or fact DELETE.
 
 - ETL Pipeline Administrator: Full access to manage tables, rerun batches, inspect quarantine tables, and manage log cleanup.
 
@@ -156,3 +156,7 @@ Each manifest includes its pipeline_run_id, parent extraction run, complete busi
 ### Atomic publication and durable failure evidence (issue #28)
 
 Dimensions, facts, source lineage, the success ledger and SUCCESS load logs commit in one transaction after all post-load checks pass. No reporting rows are published on MANUAL_REVIEW or REJECTED outcomes. Constraint, schema, financial and referential failures cannot be overridden. A failed transaction rolls back all attempted rows, reports records_loaded=0, and treats its received rows as rejected for that attempt. Failure JSON is persisted outside the transaction even when the database is unavailable; FAILED database logs and exact-value quarantine payloads use a new transaction when the target is reachable. A later retry gets a new load_run_id. An ambiguous connection failure after COMMIT is resolved by the successful-batch ledger on replay.
+
+### Role boundary (issue #29)
+
+The POS connection is always read-only. Warehouse credentials are independent WAREHOUSE_DB_* settings, stored locally in gitignored .env.warehouse.local. The setup owner creates schema and roles. The routine local login inherits etl_warehouse_writer. etl_reporting_reader has SELECT only on dim_date and the three facts, not logs/quarantine. etl_warehouse_maintainer has SELECT/DELETE on log and quarantine tables for approved retention work, not business fact deletion. Public schema access is revoked; runtime never applies DDL.
