@@ -18,7 +18,7 @@
 ### Transformation Scope
 
 - Tables Transformed: Staged records corresponding to transactions, inventory, and customer_traffic.
-- Fields Processed: Cleaned, standardized, derived, and aggregated across fields such as created_at, transaction_number, total, name, stock quantity, and number_of_customer.
+- Fields Processed: Cleaned, standardized, derived, and aggregated across fields such as created_at, transaction_number, total, name, stock_quantity, and number_of_customer.
 
 ### Dependencies and Assumptions
 
@@ -31,7 +31,7 @@
 | --- | --- | --- | --- | --- | --- |
 | transactions | transaction_number | Leading/trailing spaces | TRX-1002 | 1.5% | Trim whitespace (Rule C-01) |
 | inventory | name | Mixed upper/lower case | Iced COFFEE | 4.0% | Convert to standardized title case (Rule C-02) |
-| inventory | stock quantity | Negative values | -5.00 | 0.2% | Reject to quarantine table (Rule C-04) |
+| inventory | stock_quantity | Negative values | -5.00 | 0.2% | Reject to quarantine table (Rule C-04) |
 | customer_traffic | number_of_customer | Missing / Null values | NULL | 0.5% | Set default value to 0 or flag/reject (Rule C-03) |
 
 ## 3. Data Cleaning Rules
@@ -41,7 +41,7 @@
 | C-01 (Whitespace Trimming) | transactions.<br>transaction_number | Presence of leading or trailing whitespace characters. | Trim leading and trailing spaces. | Prevents false mismatches during joins and aggregation lookups. |
 | C-02 (Case Normalization) | inventory.name | Inconsistent capitalization across item descriptions. | Convert string values to standardized title case. | Ensures consistent grouping and presentation in inventory summaries. |
 | C-03 (Null Handling for Traffic) | customer_traffic.<br>number_of_customer | Missing or null customer entry counts. | Replace null counts with a default value of 0 or quarantine if critical. | Protects downstream aggregate calculations from returning NULL results. |
-| C-04 (Negative Stock Rejection) | inventory.stock quantity | Stock quantity value less than 0. | Reject record and route to the transformation quarantine table. | Negative physical inventory quantities represent invalid operational data. |
+| C-04 (Negative Stock Rejection) | inventory.stock_quantity | Stock quantity value less than 0. | Reject record and route to the transformation quarantine table. | Negative physical inventory quantities represent invalid operational data. |
 
 ## 4. Standardization and Data Type Rules
 
@@ -85,7 +85,7 @@ When a field fails to convert into its expected standard data type or format:
 | S-01 | transactions.created_at | TIMESTAMPTZ string / MM/DD/YYYY | YYYY-MM-DD (DATE / dim_date.full_date) | Reject record and log |
 | S-02 | transactions.total | String or general NUMERIC with symbol | NUMERIC(10,2) | Reject record and log |
 | S-03 | inventory.name | Inconsistent upper/lower text | Title Case string | Set to 'UNNAMED ITEM' |
-| S-04 | inventory.stock quantity | String / Float representation | INTEGER | Reject record to quarantine |
+| S-04 | inventory.stock_quantity | String / Float representation | INTEGER | Reject record to quarantine |
 | S-05 | customer_traffic.created_at | TIMESTAMPTZ string | HH:MM:SS (TIME / peak_hour) | Set peak hour to NULL and log warning |
 
 ## 5. Business Transformation Rules
@@ -94,7 +94,7 @@ When a field fails to convert into its expected standard data type or format:
 | --- | --- | --- | --- | --- |
 | B-01 | total | SUM of transaction totals per day | total_sales | Computes daily revenue performance |
 | B-02 | id (transactions) | COUNT of order records per day | total_orders | Tracks daily order volume |
-| B-03 | stock quantity | Count items where stock <= low_stock_threshold | low_stock_items | Identifies inventory replenishment needs |
+| B-03 | stock_quantity | Count items where stock <= low_stock_threshold | low_stock_items | Identifies inventory replenishment needs |
 | B-04 | number_of_customer, created_at | MAX / GROUP BY hour evaluation | peak_hour | Determines peak customer traffic windows |
 
 ## 6. Transformed Data Contract and Naming Convention

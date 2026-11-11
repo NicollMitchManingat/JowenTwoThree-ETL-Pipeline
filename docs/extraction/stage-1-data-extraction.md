@@ -94,6 +94,20 @@ These limitations and assumptions will guide the implementation of the extractio
 
 The Jowen Two Three Batch ETL Pipeline extracts operational data from the Jowen Two Three web application, which uses Supabase PostgreSQL as its source database. The extraction focuses on three data categories: sales transactions, inventory activities, and customer traffic records. These data are required to generate business performance reports and populate the separate PostgreSQL data warehouse.
 
+### Schema Verification Status
+
+The documented column names are codified in `pipelines/extraction/queries.py` and checked against the live database by running:
+
+```powershell
+python -m pipelines.extraction.verify_schema
+```
+
+Run this command with `ETL_MOCK_MODE=false` before the first production extraction. The live schema was verified on 2026-11-01:
+
+- `inventory.stock_quantity` — confirmed; the source column is `stock_quantity` (numeric).
+- `customer_traffic.id` — confirmed; the source primary key is `id` (bigint).
+- `transactions.id` — confirmed; the source primary key is `id` (uuid).
+
 ### Table 1: Sales Transactions
 
 | Specification | Description |
@@ -111,7 +125,7 @@ The Jowen Two Three Batch ETL Pipeline extracts operational data from the Jowen 
 |---------------|-------------|
 | Name | `inventory` |
 | Purpose | Stores inventory information and records related to stock availability. |
-| Important columns and data types | `name` (text); stock quantity (numeric) |
+| Important columns and data types | `name` (text); `stock_quantity` (numeric) |
 | Primary key or unique identifier | `id` (UUID) |
 | Relevant relationships | The extracted inventory data contributes to `fact_inventory_summary`, which is linked to `dim_date` through `date_key` in the data warehouse. Source database relationships are not specified. |
 | Reason for inclusion | Required to determine the total number of inventory items, low-stock items, and out-of-stock items. |
@@ -123,7 +137,7 @@ The Jowen Two Three Batch ETL Pipeline extracts operational data from the Jowen 
 | Name | `customer_traffic` |
 | Purpose | Stores records of customer entries and customer traffic activities. |
 | Important columns and data types | `number_of_customer` (integer); `created_at` (timestamptz) |
-| Primary key or unique identifier | The source table's unique customer-entry identifier; the actual column is not specified. |
+| Primary key or unique identifier | `id` (bigint) |
 | Relevant relationships | The extracted customer traffic data contributes to `fact_traffic_summary`, which is linked to `dim_date` through `date_key` in the data warehouse. Source database relationships are not specified. |
 | Reason for inclusion | Required to calculate the total number of recorded customer entries and identify peak customer-entry periods. |
 

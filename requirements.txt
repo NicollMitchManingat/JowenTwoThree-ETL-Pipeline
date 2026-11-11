@@ -1,0 +1,6 @@
+psycopg[binary]>=3.2,<4.0
+python-dotenv>=1.0,<2.0
+pandas>=2.2,<3.0
+pyarrow>=16.0
+pytest>=8.0
+ruff>=0.6
