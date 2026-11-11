@@ -159,9 +159,16 @@ def validate_loaded(connection, frames: dict) -> dict:
             raise ValueError(f"post-load row/count/value reconciliation failed: {table}")
         checks[table] = "PASS"
     # Exact row comparisons include each sales amount; sums additionally expose the audit totals.
-    checks["financial_totals"] = {
-        column: str(sum(frames["fact_sales_summary"][column], Decimal("0.00")))
-        for column in MONEY_COLUMNS}
+    checks["financial_totals"] = {}
+    for column in MONEY_COLUMNS:
+        received = sum(frames["fact_sales_summary"][column], Decimal("0.00"))
+        loaded = connection.execute(
+            sql.SQL("SELECT COALESCE(SUM({}),0) FROM dw_analytics.fact_sales_summary WHERE date_key=ANY(%s)")
+            .format(sql.Identifier(column)),
+            ([int(key) for key in frames["fact_sales_summary"]["date_key"]],)).fetchone()[0]
+        if received != loaded:
+            raise ValueError(f"financial sum reconciliation failed: {column}")
+        checks["financial_totals"][column] = {"received": str(received), "loaded": str(loaded), "result": "PASS"}
     return checks
 
 

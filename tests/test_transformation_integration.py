@@ -238,3 +238,39 @@ def test_pipeline_os_lock_prevents_overlapping_runs(tmp_path):
         pass
     with pipeline_lock(lock):
         pass  # OS ownership is released even though the lock file remains.
+
+
+
+def test_local_financial_value_corruption_rolls_back_even_when_sql_constraints_pass(tmp_path, monkeypatch):
+    import os
+    from dataclasses import replace
+
+    import pytest
+
+    from pipelines.extraction.batch import stage_extraction
+    from pipelines.load import runner
+    from pipelines.load.target import warehouse_config
+    from pipelines.transformation.batch import transform_batch
+    database = os.environ.get("WAREHOUSE_TEST_DATABASE")
+    if not database:
+        pytest.skip("set WAREHOUSE_TEST_DATABASE for native financial reconciliation")
+    assert database.endswith(("_test", "_demo"))
+    target = replace(warehouse_config(), dbname=database, allow_demo=True)
+    config = load_config({"ETL_MOCK_MODE": "true", "ETL_STAGING_DIR": str(tmp_path / "bronze"),
+                          "ETL_SILVER_DIR": str(tmp_path / "silver")})
+    source = stage_extraction(date(2026, 10, 16), date(2026, 10, 16), config)
+    manifest = transform_batch(source, config)
+    with target.connect() as connection:
+        before = connection.execute("SELECT * FROM dw_analytics.fact_sales_summary ORDER BY date_key").fetchall()
+    original = runner.write_table
+    def corrupt_financial_value(connection, table, frame, metadata):
+        counts = original(connection, table, frame, metadata)
+        if table == "fact_sales_summary":
+            connection.execute("UPDATE dw_analytics.fact_sales_summary SET total_sales=total_sales+0.01,net_sales=net_sales+0.01 WHERE date_key=20261016")
+        return counts
+    monkeypatch.setattr(runner, "write_table", corrupt_financial_value)
+    result = runner.load_batch(manifest, target, tmp_path / "logs")
+    assert result["status"] == "FAILED"
+    assert "reconciliation" in result["error_message"]
+    with target.connect() as connection:
+        assert connection.execute("SELECT * FROM dw_analytics.fact_sales_summary ORDER BY date_key").fetchall() == before

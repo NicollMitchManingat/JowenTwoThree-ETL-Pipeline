@@ -71,7 +71,7 @@
 | Record Reconciliation | All target fact tables | Verify zero unhandled record loss during loading | records_received = records_loaded + records_rejected | Critical |
 | Primary Key Uniqueness | fact_sales_summary, fact_inventory_summary, fact_traffic_summary | Guarantee primary key integrity | Count of duplicate primary keys in target tables = 0 | Critical |
 | Referential Integrity | Fact tables (date_key) | Enforce valid foreign key references | 100% of loaded date_key values exist in dim_date.date_key | Critical |
-| Financial Metric Reconciliation | Financial Metric Reconciliation | Financial Metric Reconciliation | Financial Metric Reconciliation | Financial Metric Reconciliation |
+| Financial Metric Reconciliation | fact_sales_summary.total_sales, refund_amount, net_sales | Prevent lost or changed financial values | Each handed-over row and each exact Decimal column sum equals the target for the affected date keys; tolerance 0.00 PHP | Critical |
 | Null Constraint Check | Mandatory target columns | Ensure no unexpected null values exist in required fields | Null count in NOT NULL constrained columns = 0 | Non-critical |
 
 ## 6. Transformed Data Contract and Naming Convention
