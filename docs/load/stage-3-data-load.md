@@ -22,7 +22,7 @@
 
 - Batch Frequency & Schedule: Daily batch schedule executed at 04:00 AM, immediately following the completion and verification of the Stage 2 data transformation.
 
-- Write Logic: Idempotent transactional batch insert and upsert logic. Existing aggregate summary rows for the specific date key are deleted or updated via primary key matching before inserting new batch records.
+- Write Logic: Idempotent transactional batch insert and upsert logic. All dimensions and facts use INSERT ... ON CONFLICT (date_key) DO UPDATE. Each daily fact enforces UNIQUE(date_key) in addition to its deterministic text summary primary key. Only affected dates are replaced; no append or additive update inflates totals.
 
 **Load Scope**
 
@@ -49,10 +49,10 @@
 
 | Table | Load Type | Write Logic | Match Key | On Failure |
 | --- | --- | --- | --- | --- |
-| dim_date | Incremental | Upsert (ON CONFLICT (full_date) DO NOTHING) | full_date | Roll back batch transaction, stop load execution. |
-| fact_sales_summary | Incremental | Delete-and-Insert by date_key | full_date | Roll back transaction, preserve prior warehouse state. |
-| fact_inventory_summary | Incremental | Delete-and-Insert by date_key | date_key | Roll back transaction, preserve prior warehouse state. |
-| fact_traffic_summary | Incremental | Delete-and-Insert by date_key | date_key | Roll back transaction, preserve prior warehouse state. |
+| dim_date | Incremental | Upsert (ON CONFLICT (date_key) DO UPDATE) | date_key | Roll back batch transaction, stop load execution. |
+| fact_sales_summary | Incremental | Upsert (ON CONFLICT (date_key) DO UPDATE) | date_key | Roll back transaction, preserve prior warehouse state. |
+| fact_inventory_summary | Incremental | Upsert (ON CONFLICT (date_key) DO UPDATE) | date_key | Roll back transaction, preserve prior warehouse state. |
+| fact_traffic_summary | Incremental | Upsert (ON CONFLICT (date_key) DO UPDATE) | date_key | Roll back transaction, preserve prior warehouse state. |
 
 ## 4. Standardization and Data Type Rules
 
