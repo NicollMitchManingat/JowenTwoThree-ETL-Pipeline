@@ -43,3 +43,14 @@ def test_empty_input_returns_empty_contract() -> None:
 
     assert result.empty
     assert list(result.columns) == FACT_SALES_SUMMARY_COLUMNS
+
+
+def test_refund_only_date_retains_negative_net_and_exact_money():
+    from decimal import Decimal
+    refunds = pd.DataFrame({"business_date": [date(2026, 10, 16)], "refund_amount": [Decimal("450.00")]})
+    result = build_sales_summary(pd.DataFrame(), business_date=date(2026, 10, 16), refunds=refunds)
+    row = result.iloc[0]
+    assert row["total_sales"] == Decimal("0.00")
+    assert row["refund_amount"] == Decimal("450.00")
+    assert row["net_sales"] == Decimal("-450.00")
+    assert row["total_orders"] == 0

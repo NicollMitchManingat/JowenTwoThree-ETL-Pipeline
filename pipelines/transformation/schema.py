@@ -19,6 +19,8 @@ FACT_SALES_SUMMARY_COLUMNS = [
     "sales_summary_key",
     "date_key",
     "total_sales",
+    "refund_amount",
+    "net_sales",
     "total_orders",
     "loaded_at",
 ]
@@ -29,7 +31,8 @@ FACT_INVENTORY_SUMMARY_COLUMNS = [
     "total_items",
     "low_stock_items",
     "out_of_stock_items",
-    "low_stock_threshold",
+    "threshold_policy",
+    "snapshot_at",
     "loaded_at",
 ]
 

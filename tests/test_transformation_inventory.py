@@ -27,9 +27,9 @@ def test_b03_counts_low_and_out_of_stock_items() -> None:
 
     row = result.iloc[0]
     assert row["total_items"] == 4
-    assert row["low_stock_items"] == 3
+    assert row["low_stock_items"] == 2
     assert row["out_of_stock_items"] == 1
-    assert row["low_stock_threshold"] == 5
+    assert row["threshold_policy"] == "PER_ITEM"
 
 
 def test_inventory_summary_key_and_columns() -> None:
@@ -58,3 +58,14 @@ def test_negative_threshold_is_rejected() -> None:
         build_inventory_summary(
             _inventory(), BUSINESS_DATE, low_stock_threshold=-1, loaded_at=LOADED_AT
         )
+
+
+def test_fractional_thresholds_and_inactive_items_are_not_rounded():
+    frame = pd.DataFrame({"item_id": ["a", "b", "c", "d"], "name": ["A", "B", "C", "D"],
+                          "stock_quantity": ["0.25", "5.4", "0", "1"],
+                          "low_stock_threshold": ["0.3", "5", "5", "5"],
+                          "is_active": [True, True, True, False]})
+    row = build_inventory_summary(frame, BUSINESS_DATE).iloc[0]
+    assert row["total_items"] == 3
+    assert row["low_stock_items"] == 1
+    assert row["out_of_stock_items"] == 1

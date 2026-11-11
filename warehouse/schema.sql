@@ -18,7 +18,9 @@ CREATE TABLE IF NOT EXISTS dim_date (
 CREATE TABLE IF NOT EXISTS fact_sales_summary (
     sales_summary_key TEXT PRIMARY KEY,
     date_key INTEGER NOT NULL REFERENCES dim_date (date_key),
-    total_sales NUMERIC(10, 2) NOT NULL CHECK (total_sales >= 0),
+    total_sales NUMERIC(18, 2) NOT NULL CHECK (total_sales >= 0),
+    refund_amount NUMERIC(18, 2) NOT NULL CHECK (refund_amount >= 0),
+    net_sales NUMERIC(18, 2) NOT NULL,
     total_orders INTEGER NOT NULL CHECK (total_orders >= 0),
     loaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -29,7 +31,8 @@ CREATE TABLE IF NOT EXISTS fact_inventory_summary (
     total_items INTEGER NOT NULL CHECK (total_items >= 0),
     low_stock_items INTEGER NOT NULL CHECK (low_stock_items >= 0),
     out_of_stock_items INTEGER NOT NULL CHECK (out_of_stock_items >= 0),
-    low_stock_threshold INTEGER NOT NULL CHECK (low_stock_threshold >= 0),
+    threshold_policy TEXT NOT NULL CHECK (threshold_policy = 'PER_ITEM'),
+    snapshot_at TIMESTAMPTZ NOT NULL,
     loaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

@@ -41,16 +41,16 @@ def connect_source(
             password=source.password,
             sslmode=source.sslmode,
             connect_timeout=connect_timeout,
+            options="-c default_transaction_read_only=on",
         )
     except psycopg.Error as exc:
         raise SourceConnectionError(str(exc)) from exc
 
-    if source.read_only:
-        try:
-            enforce_read_only(connection)
-        except psycopg.Error as exc:
-            connection.close()
-            raise SourceConnectionError(str(exc)) from exc
+    try:
+        enforce_read_only(connection)
+    except psycopg.Error as exc:
+        connection.close()
+        raise SourceConnectionError(str(exc)) from exc
 
     return connection
 

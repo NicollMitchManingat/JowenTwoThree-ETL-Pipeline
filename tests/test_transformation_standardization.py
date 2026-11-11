@@ -1,7 +1,7 @@
 from datetime import date
+from decimal import Decimal
 
 import pandas as pd
-import pytest
 
 from pipelines.transformation.standardization import (
     standardize_inventory,
@@ -46,8 +46,8 @@ def test_s01_rejects_invalid_created_at() -> None:
 def test_s02_strips_currency_and_rounds_half_up() -> None:
     result = standardize_transactions(_transactions(), TIMEZONE)
 
-    assert result.cleaned.loc[0, "total"] == pytest.approx(1234.57)
-    assert result.cleaned.loc[1, "total"] == pytest.approx(10.01)
+    assert result.cleaned.loc[0, "total"] == Decimal("1234.57")
+    assert result.cleaned.loc[1, "total"] == Decimal("10.01")
 
 
 def test_s02_rejects_unparseable_total() -> None:
@@ -82,19 +82,19 @@ def test_s03_falls_back_for_missing_name() -> None:
     assert result.warnings[0].error_code == "WARN_UNNAMED_ITEM"
 
 
-def test_s04_casts_stock_to_integer_and_rejects_invalid() -> None:
+def test_s04_preserves_decimal_stock_and_rejects_invalid() -> None:
     frame = pd.DataFrame(
         {
             "item_id": ["item-1", "item-2"],
             "name": ["A", "B"],
-            "stock_quantity": ["3", "not-a-number"],
+            "stock_quantity": ["3.125", "not-a-number"],
         }
     )
 
     result = standardize_inventory(frame)
 
-    assert result.cleaned.loc[0, "stock_quantity"] == 3
-    assert result.cleaned["stock_quantity"].dtype == "int64"
+    assert result.cleaned.loc[0, "stock_quantity"] == Decimal("3.125")
+    assert isinstance(result.cleaned.loc[0, "stock_quantity"], Decimal)
     assert result.rejected.iloc[0]["rule_id"] == "S-04"
 
 

@@ -69,7 +69,7 @@ def test_mock_transformation_writes_silver_quarantine_and_log(
         "fact_inventory_summary", config.etl.silver_dir, BUSINESS_DATE
     )
     assert inventory.iloc[0]["total_items"] == 14
-    assert inventory.iloc[0]["low_stock_items"] == 3
+    assert inventory.iloc[0]["low_stock_items"] == 2
     assert inventory.iloc[0]["out_of_stock_items"] == 1
 
     traffic = read_silver(

@@ -51,7 +51,7 @@ The extracted raw fields from the source tables (transactions, inventory, and cu
 
 - Date and Time Fields: Timestamps extracted as timestamptz strings (e.g., created_at in transactions and customer_traffic) are explicitly converted into target DATE, INTEGER (for date keys/components), or TIME types.
 - Monetary Values: Transaction amounts and unit prices recorded as general numeric/text values are explicitly cast to NUMERIC(10,2) to prevent floating-point rounding errors during financial reporting.
-- Counts and Quantities: Stock counts and customer entry totals are cast to non-negative INTEGER types.
+- Counts and Quantities: Inventory quantities and thresholds retain exact nonnegative decimal values in their recorded units; customer counts remain whole integers.
 - Text Descriptions: String fields (such as item names and transaction numbers) are cast to standardized text types with leading/trailing whitespaces stripped.
 
 ### 4.2 Formats
@@ -70,7 +70,7 @@ The extracted raw fields from the source tables (transactions, inventory, and cu
 ### 4.3 Reference Values and Codes
 
 - Currency Code: All financial figures are standardized in Philippine Peso (PHP / ₱). Currency symbols included in raw input strings are stripped during transformation, leaving purely numeric decimal values.
-- Unit of Measure: Inventory stock quantities are measured in single units (pcs or count).
+- Unit of Measure: Inventory quantities retain each source item's unit; values in kg, liters, pieces, and other units are never rounded or combined across items.
 - Status / Category Normalization: Operational status codes or inventory alerts are mapped to standard uppercase descriptors (e.g., LOW_STOCK, OUT_OF_STOCK, NORMAL).
 
 ### 4.4 Handling of Conversion Failures
@@ -85,16 +85,16 @@ When a field fails to convert into its expected standard data type or format:
 | S-01 | transactions.created_at | TIMESTAMPTZ string / MM/DD/YYYY | YYYY-MM-DD (DATE / dim_date.full_date) | Reject record and log |
 | S-02 | transactions.total | String or general NUMERIC with symbol | NUMERIC(10,2) | Reject record and log |
 | S-03 | inventory.name | Inconsistent upper/lower text | Title Case string | Set to 'UNNAMED ITEM' |
-| S-04 | inventory.stock_quantity | String / Float representation | INTEGER | Reject record to quarantine |
+| S-04 | inventory.stock_quantity | Source numeric/text | Exact DECIMAL | Reject invalid or negative quantities |
 | S-05 | customer_traffic.created_at | TIMESTAMPTZ string | HH:MM:SS (TIME / peak_hour) | Set peak hour to NULL and log warning |
 
 ## 5. Business Transformation Rules
 
 | Rule ID | Input Columns | Logic | Output Column | Business Reason |
 | --- | --- | --- | --- | --- |
-| B-01 | total | SUM of transaction totals per day | total_sales | Computes daily revenue performance |
+| B-01 | total | SUM of paid transaction totals per Manila day | total_sales | Computes daily revenue performance |
 | B-02 | id (transactions) | COUNT of order records per day | total_orders | Tracks daily order volume |
-| B-03 | stock_quantity | Count items where stock <= low_stock_threshold | low_stock_items | Identifies inventory replenishment needs |
+| B-03 | stock_quantity, low_stock_threshold, is_active | Active items with 0 < stock <= item threshold; zero stock counted separately | low_stock_items | Preserves POS categories without rounding |
 | B-04 | number_of_customer, created_at | MAX / GROUP BY hour evaluation | peak_hour | Determines peak customer traffic windows |
 
 ## 6. Transformed Data Contract and Naming Convention
@@ -185,3 +185,7 @@ When a field fails to convert into its expected standard data type or format:
 | Duplicate Records on Rerun | Pipeline rerun executed without idempotent configuration | Inflated sales totals and metric distortion | Implement upsert logic and date-based partition clearing by batch ID |
 | Late-Arriving Transactions | Point-of-sale transactions posted after batch window closure | Missing revenue metrics for specific dates | Utilize a rolling 3-day lookback window during daily transformations |
 | Unexpected Schema Drift | Source database column renamed without notice | Transformation query failure | Execute schema validation checks prior to running transformation scripts |
+
+### POS alignment (issue #36)
+
+Stage 1 validates source names, PostgreSQL types and exact counts in a repeatable-read, read-only transaction. Empty dates are valid. Refunds are extracted by their own created_at window. Stage 2 preserves total_sales before refunds and adds refund_amount and net_sales = total_sales - refund_amount, all exact NUMERIC(18,2). Net sales may be negative. Inventory captures are timestamped observations, never reconstructed historical balances.

@@ -8,6 +8,8 @@ from decimal import ROUND_HALF_UP, Decimal
 
 import pandas as pd
 
+from pipelines.money import decimal_value, money
+
 from .rejects import build_rejects, empty_rejects
 
 
@@ -40,12 +42,13 @@ def _parse_business_datetime(series: pd.Series, timezone: str) -> pd.Series:
 
 
 def _parse_money(series: pd.Series) -> pd.Series:
-    if pd.api.types.is_numeric_dtype(series):
-        return pd.to_numeric(series, errors="coerce")
-    text = series.astype("string").str.replace(
-        r"[Pp][Hh][Pp]|[₱,\s]", "", regex=True
-    )
-    return pd.to_numeric(text, errors="coerce")
+    def parse(value):
+        try:
+            result = money(value)
+            return result if result >= 0 else None
+        except (ValueError, ArithmeticError):
+            return None
+    return series.map(parse)
 
 
 def _round_half_up(series: pd.Series) -> pd.Series:
@@ -100,7 +103,7 @@ def standardize_transactions(
         )
     )
     cleaned = cleaned.loc[~invalid_totals].copy()
-    cleaned["total"] = _round_half_up(parsed_totals.loc[~invalid_totals])
+    cleaned["total"] = parsed_totals.loc[~invalid_totals]
 
     if "transaction_number" in cleaned:
         cleaned["transaction_number"] = (
@@ -114,7 +117,7 @@ def standardize_transactions(
 
 
 def standardize_inventory(frame: pd.DataFrame) -> StandardizationResult:
-    """Apply S-03 name fallback and S-04 integer stock casting."""
+    """Apply S-03 name fallback and preserve exact S-04 decimal quantities."""
 
     cleaned = frame.copy()
     rejected_parts: list[pd.DataFrame] = []
@@ -134,7 +137,13 @@ def standardize_inventory(frame: pd.DataFrame) -> StandardizationResult:
             )
         cleaned["name"] = names.mask(unnamed, "UNNAMED ITEM")
 
-    numeric_stock = pd.to_numeric(cleaned["stock_quantity"], errors="coerce")
+    def parse_stock(value):
+        try:
+            return decimal_value(value)
+        except ValueError:
+            return None
+
+    numeric_stock = cleaned["stock_quantity"].map(parse_stock)
     negative = numeric_stock < 0
     rejected_parts.append(
         build_rejects(
@@ -162,9 +171,7 @@ def standardize_inventory(frame: pd.DataFrame) -> StandardizationResult:
 
     keep = ~(negative | invalid)
     cleaned = cleaned.loc[keep].copy()
-    cleaned["stock_quantity"] = (
-        numeric_stock.loc[keep].round().astype("int64")
-    )
+    cleaned["stock_quantity"] = numeric_stock.loc[keep]
 
     return StandardizationResult(
         cleaned=cleaned.reset_index(drop=True),
