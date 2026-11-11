@@ -72,7 +72,7 @@
 | Primary Key Uniqueness | fact_sales_summary, fact_inventory_summary, fact_traffic_summary | Guarantee primary key integrity | Count of duplicate primary keys in target tables = 0 | Critical |
 | Referential Integrity | Fact tables (date_key) | Enforce valid foreign key references | 100% of loaded date_key values exist in dim_date.date_key | Critical |
 | Financial Metric Reconciliation | fact_sales_summary.total_sales, refund_amount, net_sales | Prevent lost or changed financial values | Each handed-over row and each exact Decimal column sum equals the target for the affected date keys; tolerance 0.00 PHP | Critical |
-| Null Constraint Check | Mandatory target columns | Ensure no unexpected null values exist in required fields | Null count in NOT NULL constrained columns = 0 | Non-critical |
+| Null Constraint Check | Mandatory target columns | Prevent invalid rows reaching publication | Null count in NOT NULL constrained columns = 0 | Critical |
 
 ## 6. Transformed Data Contract and Naming Convention
 
@@ -126,7 +126,7 @@ Deletion and Backup Protocols
 | Overall Condition | Acceptance Decision | Pipeline Action |
 | --- | --- | --- |
 | All pre-load and post-load critical checks PASS; record reconciliation matches 100% | APPROVED | Commit transaction, mark batch complete, publish warehouse data to reporting views |
-| All critical checks PASS, but non-critical warnings are flagged (e.g., minor null rate in optional fields) | MANUAL REVIEW | Commit data but flag batch for inspection; notify ETL administrator |
+| All critical checks PASS, but non-critical warnings are flagged (e.g., minor null rate in optional fields) | MANUAL REVIEW | Hold publication; retain the immutable package and notify the ETL operator through the failure/completion record |
 | Any critical check FAILS (e.g., target connection failure, broken foreign key, amount mismatch) | REJECTED | Issue ROLLBACK, halt pipeline, send critical alert notification |
 
 | Validation Summary | Result |
@@ -152,3 +152,7 @@ The batch identity is the SHA-256 of the sealed Stage 2 manifest. A success-only
 ### Sealed handover validation (issue #27)
 
 Each manifest includes its pipeline_run_id, parent extraction run, complete business-date list, source snapshot timestamp, source mode, source reconciliation counts and validation results. Every file has a relative path contained in the run package, exact final row count, column list and SHA-256. Stage 3 verifies all of these before writing. Transformation rejections are upstream audit evidence and are not counted as rows received by loading. A package is immutable; manual review creates a new package linked to the held manifest. Old v1 manifests are rejected and must be regenerated.
+
+### Atomic publication and durable failure evidence (issue #28)
+
+Dimensions, facts, source lineage, the success ledger and SUCCESS load logs commit in one transaction after all post-load checks pass. No reporting rows are published on MANUAL_REVIEW or REJECTED outcomes. Constraint, schema, financial and referential failures cannot be overridden. A failed transaction rolls back all attempted rows, reports records_loaded=0, and treats its received rows as rejected for that attempt. Failure JSON is persisted outside the transaction even when the database is unavailable; FAILED database logs and exact-value quarantine payloads use a new transaction when the target is reachable. A later retry gets a new load_run_id. An ambiguous connection failure after COMMIT is resolved by the successful-batch ledger on replay.
