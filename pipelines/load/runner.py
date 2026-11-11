@@ -115,7 +115,7 @@ def validate_target(connection, frames: dict) -> None:
         for column in frames[table]:
             if actual.get((table, column)) != expected_type(column):
                 raise ValueError(f"target schema mismatch: {table}.{column}")
-    for table in (*TABLES, "load_log", "load_quarantine", "transformation_quarantine"):
+    for table in (*TABLES, "load_log", "load_quarantine", "load_batches", "transformation_quarantine"):
         for privilege in ("SELECT", "INSERT", "UPDATE"):
             if not connection.execute("SELECT has_table_privilege(current_user,%s,%s)",
                                       (f"dw_analytics.{table}", privilege)).fetchone()[0]:
@@ -138,7 +138,7 @@ def write_table(connection, table: str, frame: pd.DataFrame, manifest: dict) -> 
         for row in frame.to_dict("records"):
             values = [native(row[c], c) for c in columns]
             if table != "dim_date":
-                values += [manifest["pipeline_run_id"], datetime.fromisoformat(manifest["created_at"])]
+                values += [manifest["pipeline_run_id"], datetime.fromisoformat(manifest["snapshot_at"])]
             cursor.execute(statement, values)
     updated = len(existing)
     return len(frame) - updated, updated
@@ -163,6 +163,25 @@ def validate_loaded(connection, frames: dict) -> dict:
         column: str(sum(frames["fact_sales_summary"][column], Decimal("0.00")))
         for column in MONEY_COLUMNS}
     return checks
+
+
+def check_batch(connection, manifest: dict, digest: str, frames: dict) -> bool:
+    previous = connection.execute(
+        "SELECT manifest_sha256 FROM dw_analytics.load_batches WHERE batch_id=%s OR transformation_run_id=%s",
+        (digest, manifest["pipeline_run_id"])).fetchone()
+    if previous:
+        if previous[0] != digest:
+            raise ValueError("a published transformation identity was reused with a changed manifest")
+        return True
+    captured = datetime.fromisoformat(manifest["snapshot_at"])
+    for table in FACT_KEY_COLUMNS:
+        newer = connection.execute(
+            sql.SQL("SELECT 1 FROM dw_analytics.{} WHERE date_key=ANY(%s) AND source_created_at>%s LIMIT 1")
+            .format(sql.Identifier(table)),
+            ([int(key) for key in frames[table]["date_key"]], captured)).fetchone()
+        if newer:
+            raise ValueError(f"stale extraction cannot replace newer published data: {table}")
+    return False
 
 
 def finish(record: dict) -> None:
@@ -194,10 +213,22 @@ def load_batch(manifest_path: Path, config: WarehouseConfig, log_dir: Path = Pat
             validate_target(connection, frames)
             record["pre_load_result"] = {"handover": "PASS", "schema": "PASS", "storage": "PASS",
                                          "counts": "PASS", "permissions": "PASS"}
+            if not dry_run:
+                connection.execute("SELECT pg_advisory_xact_lock(21477,3)")
+            duplicate = check_batch(connection, manifest, record["batch_id"], frames)
             if dry_run:
                 finish(record)
-                return dict(record, status="DRY_RUN")
-            connection.execute("SELECT pg_advisory_xact_lock(21477,3)")
+                return dict(record, status="DRY_RUN", duplicate_batch=duplicate)
+            if duplicate:
+                record["status"] = "SKIPPED"
+                record["details"] = {"reason": "identical approved batch already published"}
+                for counts in record["tables"].values():
+                    counts.update(received=0)
+                finish(record)
+                persist_db_log(connection, record)
+            if duplicate:
+                write_json(log_dir / f"{record['load_run_id']}.json", record)
+                return record
             for table in TABLES:
                 inserted, updated = write_table(connection, table, frames[table], manifest)
                 record["tables"][table].update(inserted=inserted, updated=updated, loaded=inserted + updated)
@@ -210,6 +241,13 @@ def load_batch(manifest_path: Path, config: WarehouseConfig, log_dir: Path = Pat
                     (manifest["pipeline_run_id"], manifest["parent_run_id"], row["source_table"],
                      native(row["source_record_id"], ""), row["rule_id"], row["error_code"], row["reason"],
                      Jsonb(json.loads(row["payload"]))))
+            connection.execute(
+                """INSERT INTO dw_analytics.load_batches
+                   (batch_id,transformation_run_id,manifest_sha256,load_run_id,source_created_at,business_dates)
+                   VALUES (%s,%s,%s,%s,%s,%s)""",
+                (record["batch_id"], manifest["pipeline_run_id"], record["batch_id"], record["load_run_id"],
+                 datetime.fromisoformat(manifest["snapshot_at"]),
+                 [date.fromisoformat(d) for d in manifest["dates"]]))
             record["status"] = "SUCCESS"
             finish(record)
             persist_db_log(connection, record)

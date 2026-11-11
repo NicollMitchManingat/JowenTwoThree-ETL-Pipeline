@@ -61,7 +61,7 @@
 | Target Connection | PostgreSQL Data Warehouse | Verify target availability and write permission | Connection established within 10-second timeout; write test query succeeds | Critical |
 | Handover Status | Transformation Stage Metadata | Ensure only approved datasets are loaded | Stage 2 execution status = APPROVED | Critical |
 | Schema Compatibility | dw_analytics, Target Tables | Prevent column or type mismatch failures | Target table names, column names, and data types match Stage 2 contract strictly | Critical |
-| Duplicate Batch Check | load_log.batch_id | Prevent duplicate processing of an already completed batch | Target load_log does not contain an existing SUCCESS status for the target batch_id | Critical |
+| Duplicate Batch Check | load_log.batch_id | Prevent duplicate processing of an already completed batch | An identical successful manifest is SKIPPED without replay. A new approved correction may upsert the same dates; older extraction snapshots are rejected. | Critical |
 | Storage Capacity Check | Warehouse Storage Volume | Confirm adequate disk space for batch insertion | Available storage volume > 1 GB threshold | Critical |
 
 ## 5. Post-Load Validation and Reconciliation
@@ -145,3 +145,6 @@ Deletion and Backup Protocols
 | Duplicate Rows on Rerun | Pipeline batch rerun without clearing previous target entries | Inflated aggregate sales totals, distorted inventory metrics | Implement explicit delete-by-date_key or upsert write logic prior to loading batch records. |
 | Foreign Key Constraint Violation | Fact table records attempting to load before dim_date contains the required date_key | Load process aborts with transactional rollback | Strictly enforce load sequence (dimensions before facts); include default "Unknown Date" surrogate key fallback. |
 | Partial Data Load after Crash | Database crash or network disconnection midway through batch execution | Target warehouse left in an inconsistent state | Enclose all load statements for the batch inside a single atomic database transaction (BEGIN ... COMMIT). |
+### Duplicate, correction, and backfill rules (issue #31)
+
+The batch identity is the SHA-256 of the sealed Stage 2 manifest. A success-only load_batches ledger is committed atomically with facts and SUCCESS logs. Identical replays are no-ops; changing a published transformation identity is rejected. New approved runs replace matching date_key rows. The source extraction snapshot timestamp prevents an older extraction, even one transformed later, from overwriting newer data. Overlapping loads serialize under a transaction advisory lock. Backfills create fresh Stage 1 packages for the requested dates; no force flag bypasses critical checks.

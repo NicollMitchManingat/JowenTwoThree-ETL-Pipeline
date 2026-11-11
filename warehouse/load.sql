@@ -38,3 +38,15 @@ CREATE TABLE IF NOT EXISTS load_quarantine (
     rejected_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 GRANT SELECT, DELETE ON load_log, load_quarantine TO etl_warehouse_maintainer;
+
+
+-- Success-only identity ledger. Written in the same transaction as published facts.
+CREATE TABLE IF NOT EXISTS load_batches (
+    batch_id TEXT PRIMARY KEY,
+    transformation_run_id TEXT NOT NULL UNIQUE,
+    manifest_sha256 TEXT NOT NULL,
+    load_run_id TEXT NOT NULL UNIQUE,
+    source_created_at TIMESTAMPTZ NOT NULL,
+    business_dates DATE[] NOT NULL,
+    loaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

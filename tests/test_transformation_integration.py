@@ -156,3 +156,36 @@ def test_local_warehouse_rolls_back_postload_failure(tmp_path, monkeypatch):
     with target.connect() as connection:
         assert connection.execute("SELECT count(*) FROM dw_analytics.load_log WHERE load_run_id=%s AND status='FAILED'",
                                   (result["load_run_id"],)).fetchone()[0] == 4
+
+
+
+def test_local_warehouse_skips_identical_batches_and_rejects_stale_extractions(tmp_path):
+    import os
+    from dataclasses import replace
+
+    import pytest
+
+    from pipelines.extraction.batch import stage_extraction
+    from pipelines.load.runner import load_batch
+    from pipelines.load.target import warehouse_config
+    from pipelines.transformation.batch import transform_batch
+
+    database = os.environ.get("WAREHOUSE_TEST_DATABASE")
+    if not database:
+        pytest.skip("set WAREHOUSE_TEST_DATABASE for PostgreSQL integration")
+    assert database.endswith(("_test", "_demo"))
+    target = replace(warehouse_config(), dbname=database, allow_demo=True)
+    config = load_config({"ETL_MOCK_MODE": "true", "ETL_STAGING_DIR": str(tmp_path / "bronze"),
+                          "ETL_SILVER_DIR": str(tmp_path / "silver")})
+    old_source = stage_extraction(date(2026, 10, 16), date(2026, 10, 16), config)
+    fresh_source = stage_extraction(date(2026, 10, 16), date(2026, 10, 16), config)
+    fresh = transform_batch(fresh_source, config)
+    first = load_batch(fresh, target, tmp_path / "logs")
+    assert first["status"] == "SUCCESS", first
+    duplicate = load_batch(fresh, target, tmp_path / "logs")
+    assert duplicate["status"] == "SKIPPED", duplicate
+    old_transform = transform_batch(old_source, config)
+    stale = load_batch(old_transform, target, tmp_path / "logs")
+    assert stale["status"] == "FAILED"
+    assert "stale extraction" in stale["error_message"]
+    assert all(count["loaded"] == 0 for count in stale["tables"].values())
