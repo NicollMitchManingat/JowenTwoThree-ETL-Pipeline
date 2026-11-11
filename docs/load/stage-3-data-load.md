@@ -145,7 +145,7 @@ Deletion and Backup Protocols
 | Problem | Possible Cause | Impact | Mitigation |
 | --- | --- | --- | --- |
 | Duplicate Rows on Rerun | Pipeline batch rerun without clearing previous target entries | Inflated aggregate sales totals, distorted inventory metrics | Implement explicit delete-by-date_key or upsert write logic prior to loading batch records. |
-| Foreign Key Constraint Violation | Fact table records attempting to load before dim_date contains the required date_key | Load process aborts with transactional rollback | Strictly enforce load sequence (dimensions before facts); include default "Unknown Date" surrogate key fallback. |
+| Foreign Key Constraint Violation | Fact table records attempting to load before dim_date contains the required date_key | Load process aborts with transactional rollback | Load dimensions first and reject facts whose real YYYYMMDD date_key is missing or invalid; never substitute an unknown date. |
 | Partial Data Load after Crash | Database crash or network disconnection midway through batch execution | Target warehouse left in an inconsistent state | Enclose all load statements for the batch inside a single atomic database transaction (BEGIN ... COMMIT). |
 ### Duplicate, correction, and backfill rules (issue #31)
 
@@ -166,3 +166,7 @@ The POS connection is always read-only. Warehouse credentials are independent WA
 ### Load accounting contract (issue #30)
 
 Counts refer only to final dimension/fact rows handed to Stage 3, never source rows or transformation rejections. For processed attempts, received = inserted + updated + rejected and loaded = inserted + updated. A rolled-back attempt has loaded/inserted/updated zero and rejected=received. An identical successful replay has status SKIPPED and zero processed counts, linked to the original successful batch. Per-table load_log rows include pre/post validation details, exact financial audit totals, UTC timestamps, duration, code version, error code and message. The separate load_batches ledger contains only committed successful identities. Local failure JSON and retained run packages remain available if the database cannot record its log.
+
+### Calendar contract (issue #32)
+
+The date dimension includes date_key (YYYYMMDD), full_date, day_of_month, month, month_name, quarter, year, day_of_week (Monday=0), day_name and is_weekend. full_date is unique and required. Stage 2 supplies a contiguous range covering the sales/traffic window and actual inventory capture date. Stage 3 validates date_key against full_date and requires every fact date to exist in the handed-over dimension before writing. Invalid or orphan dates are critical failures, with no default/unknown member.

@@ -274,3 +274,21 @@ def test_local_financial_value_corruption_rolls_back_even_when_sql_constraints_p
     assert "reconciliation" in result["error_message"]
     with target.connect() as connection:
         assert connection.execute("SELECT * FROM dw_analytics.fact_sales_summary ORDER BY date_key").fetchall() == before
+
+
+
+def test_loader_rejects_orphan_dates_before_connecting(tmp_path):
+    import pytest
+
+    from pipelines.artifacts import read_package
+    from pipelines.extraction.batch import stage_extraction
+    from pipelines.load.runner import validate_input
+    from pipelines.transformation.batch import transform_batch
+    config = load_config({"ETL_MOCK_MODE": "true", "ETL_STAGING_DIR": str(tmp_path / "bronze"),
+                          "ETL_SILVER_DIR": str(tmp_path / "silver")})
+    source = stage_extraction(date(2026, 10, 16), date(2026, 10, 16), config)
+    output = transform_batch(source, config)
+    manifest, frames = read_package(output, "transformation")
+    frames["dim_date"] = frames["dim_date"].loc[frames["dim_date"]["date_key"] != 20261016]
+    with pytest.raises(ValueError, match="referential"):
+        validate_input(manifest, frames)
