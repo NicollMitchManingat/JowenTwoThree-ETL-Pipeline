@@ -1,51 +1,45 @@
-# Scheduling the Daily Extraction Batch
+# Daily batch operation
 
-The extraction batch runs once per day after business operations have closed.
-It extracts the previous business day's records, validates them, writes Parquet
-partitions under `data/bronze/`, and records run metadata under `data/logs/`.
+All business windows use Asia/Manila. Run the full pipeline daily at 02:00 after the previous business day closes. Stages are dependency-driven: extraction completes before transformation, and only approved transformation packages reach loading. Stage 3 never queries the POS.
 
-## Manual run
+## Setup and manual commands
 
-```powershell
-.\.venv\Scripts\python.exe -m pipelines.extraction.run
-```
+Use Python 3.11 and the repository requirements. For the Windows-local target:
 
-Useful options:
+~~~powershell
+.\.venv\Scripts\python.exe -B tools/local_warehouse.py --download
+.\.venv\Scripts\python.exe -B -m pipelines.run --demo --date 2026-11-10
+.\.venv\Scripts\python.exe -B -m pipelines.run --date 2026-11-10
+~~~
 
-| Option | Purpose |
-|--------|---------|
-| `--date YYYY-MM-DD` | Override the business date instead of using the previous day |
-| `--demo` | Force mock mode with deterministic sample data |
-| `--full` | Extract full tables instead of the previous-day window |
-| `--dry-run` | Validate without writing Parquet or log files |
+The portable cluster stays inside ignored data/warehouse, listens only on 127.0.0.1:55432, and uses independent generated warehouse credentials. Demo data goes only to jowen_analytics_demo; live reporting uses jowen_analytics. No system service is installed. Run tools/local_warehouse.py again to start an existing cluster; --stop stops only that cluster. --backup writes local pg_dump archives before major backfills or schema work.
 
-## Linux/macOS cron
+## Windows schedule
 
-Run at 02:00 local time every day:
+tools/run_daily.ps1 starts the local warehouse and runs the complete pipeline. After verifying it, explicitly run tools/install_daily_task.ps1 to register the optional 02:00 Windows task. Registration is a separate system action, not part of editing this repository. The host must use UTC+08:00 Philippine time. This interactive task needs the user logged in and the machine available; missed runs start when available. Multiple scheduled instances are ignored, and the pipeline also holds an OS file lock. Do not treat a powered-off workstation as an always-on server.
 
-```cron
-0 2 * * * cd /path/to/JowenTwoThree-ETL-Pipeline && .venv/bin/python -m pipelines.extraction.run >> data/logs/cron.log 2>&1
-```
+## Bounded refresh, retry, and backfill
 
-## Windows Task Scheduler
+Default processing freshly extracts the previous three completed business dates, not old bronze files. --date selects the last date; --lookback-days changes the number of refreshed dates. An explicit inclusive --start-date/--end-date pair selects a backfill without adding lookback days. Future/current incomplete dates and unbounded --full extraction are not supported.
 
-Create a daily task that runs:
+~~~powershell
+.\.venv\Scripts\python.exe -B -m pipelines.run --start-date 2026-11-01 --end-date 2026-11-10
+.\.venv\Scripts\python.exe -B -m pipelines.run --demo --date 2026-11-10 --dry-run
+~~~
 
-```powershell
-C:\path\to\JowenTwoThree-ETL-Pipeline\.venv\Scripts\python.exe -m pipelines.extraction.run
-```
+Transient source/target connection failures and retryable transaction conflicts get at most three attempts with 2- and 4-second waits by default. Invalid data, schemas, permissions, checksums and stale snapshots stop immediately. Source failure attempts do not write partial approved packages. Every final pipeline outcome has an operational JSON log and a separate completion/audit JSON. Exit codes are 0 for success/skip/dry-run, 1 for held/failed execution, and 2 for invalid command configuration. Console output and completion manifests are the notification interface; no external messages are sent automatically.
 
-Set **Start in** to the repository root so relative paths resolve correctly.
+## Stage commands and explicit review
 
-## Retry and safe reruns
+~~~powershell
+.\.venv\Scripts\python.exe -B -m pipelines.extraction.run --date 2026-11-10
+.\.venv\Scripts\python.exe -B -m pipelines.transformation.run --manifest <bronze-run-manifest>
+.\.venv\Scripts\python.exe -B -m pipelines.load.run --manifest <approved-silver-manifest>
+.\.venv\Scripts\python.exe -B -m pipelines.transformation.run --manifest <held-silver-manifest> --review-reason 'Verified noncritical inventory naming warning'
+~~~
 
-- Connection failures are retried with exponential backoff. Configure the
-  number of attempts with `ETL_RETRY_ATTEMPTS` and the base delay with
-  `ETL_RETRY_BACKOFF_SECONDS`.
-- Each Parquet partition is written to a temporary file and atomically renamed,
-  so rerunning the same business date replaces the partition instead of
-  appending duplicates.
-- Every run writes a separate `Run_*.json` log. Failed or partial runs retain
-  their error message and error code for troubleshooting.
-- Logs older than `ETL_LOG_RETENTION_DAYS` are purged automatically after a
-  successful write.
+Review creates a new approved package containing the same transformed values and an operator/reason audit trail. It cannot approve REJECTED batches or bypass critical checks. Rerun loading with the newly approved manifest. Only the version-2 commands above are supported for production; legacy in-memory runner helpers and version-1 manifests are retained for older test/data inspection and are not accepted by the loader.
+
+## Retention and recovery
+
+Retain operational logs at least 90 days, completion/audit records and input/output packages at least one year, and quarantine at least 30 days. Keep held runs and anything needed for troubleshooting longer. No automatic package or quarantine deletion occurs. An ETL administrator reviews release/retention before archive or deletion; the maintenance role has log/quarantine DELETE privileges and the routine writer has none. Preserve retained inventory observations because a fresh historical extraction cannot recreate past inventory balances.

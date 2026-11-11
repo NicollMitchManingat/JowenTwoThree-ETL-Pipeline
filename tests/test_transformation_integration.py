@@ -2,7 +2,7 @@ from datetime import date
 from pathlib import Path
 
 from pipelines.config import load_config
-from pipelines.extraction.run import run_extraction
+from pipelines.extraction.batch import stage_extraction
 from pipelines.transformation.run import main
 
 BUSINESS_DATE = date(2026, 10, 16)
@@ -40,26 +40,26 @@ def _set_env(monkeypatch, tmp_path: Path) -> None:
 
 def test_cli_demo_runs_transformation_end_to_end(tmp_path: Path, monkeypatch) -> None:
     config = _config(tmp_path)
-    assert run_extraction(BUSINESS_DATE, config).status == "SUCCESS"
+    source = stage_extraction(BUSINESS_DATE, BUSINESS_DATE, config)
     _set_env(monkeypatch, tmp_path)
 
-    code = main(["--demo", "--date", BUSINESS_DATE.isoformat()])
+    code = main(["--manifest", str(source)])
 
     assert code == 0
-    manifests = list((tmp_path / "handover").glob("Transform_*/manifest.json"))
+    manifests = list((tmp_path / "silver").glob("Transform_*/manifest.json"))
     assert len(manifests) == 1
-    assert (tmp_path / "silver" / "fact_sales_summary").exists()
-    assert (tmp_path / "logs" / "transformation").exists()
+    assert (manifests[0].parent / "fact_sales_summary.parquet").exists()
+    assert "APPROVED" in manifests[0].read_text()
 
 
 def test_cli_dry_run_writes_no_transformation_output(
     tmp_path: Path, monkeypatch
 ) -> None:
     config = _config(tmp_path)
-    assert run_extraction(BUSINESS_DATE, config).status == "SUCCESS"
+    source = stage_extraction(BUSINESS_DATE, BUSINESS_DATE, config)
     _set_env(monkeypatch, tmp_path)
 
-    code = main(["--demo", "--date", BUSINESS_DATE.isoformat(), "--dry-run"])
+    code = main(["--manifest", str(source), "--dry-run"])
 
     assert code == 0
     assert not (tmp_path / "silver").exists()
@@ -189,3 +189,52 @@ def test_local_warehouse_skips_identical_batches_and_rejects_stale_extractions(t
     assert stale["status"] == "FAILED"
     assert "stale extraction" in stale["error_message"]
     assert all(count["loaded"] == 0 for count in stale["tables"].values())
+
+
+
+def test_full_pipeline_dry_run_does_not_write_files(tmp_path):
+    from pipelines.run import run_pipeline
+    config = load_config({"ETL_MOCK_MODE": "true", "ETL_STAGING_DIR": str(tmp_path / "bronze"),
+                          "ETL_SILVER_DIR": str(tmp_path / "silver"),
+                          "ETL_LOG_DIR": str(tmp_path / "logs"),
+                          "ETL_HANDOVER_DIR": str(tmp_path / "handover")})
+    result = run_pipeline(date(2026, 10, 15), date(2026, 10, 16), config, dry_run=True)
+    assert result["status"] == "DRY_RUN", result
+    assert result["transformation"]["output_counts"]["fact_sales_summary"] == 2
+    assert not list(tmp_path.iterdir())
+
+
+def test_review_preserves_held_package_and_cannot_override_rejection(tmp_path):
+    import pytest
+
+    from pipelines.artifacts import file_digest, read_package, write_package
+    from pipelines.extraction.batch import extract_batch
+    from pipelines.transformation.batch import transform_batch
+    from pipelines.transformation.review import approve
+    config = load_config({"ETL_MOCK_MODE": "true", "ETL_STAGING_DIR": str(tmp_path / "bronze"),
+                          "ETL_SILVER_DIR": str(tmp_path / "silver")})
+    frames, captured = extract_batch(date(2026, 10, 16), date(2026, 10, 16), config)
+    frames["inventory"].loc[0, "name"] = None
+    source = write_package(config.etl.staging_dir, "Run_review", "extraction", frames,
+                           {"dates": ["2026-10-16"], "snapshot_at": captured.isoformat(), "source_mode": "mock"})
+    held = transform_batch(source, config)
+    before = file_digest(held)
+    metadata, _ = read_package(held, "transformation", approved=False)
+    assert metadata["decision"] == "MANUAL_REVIEW"
+    reviewed = approve(held, config, "Verified the unnamed inventory item with the operator")
+    approved, _ = read_package(reviewed, "transformation")
+    assert approved["review"]["reviewed_run_id"] == metadata["pipeline_run_id"]
+    assert file_digest(held) == before
+    with pytest.raises(ValueError, match="MANUAL_REVIEW"):
+        approve(reviewed, config, "Cannot approve an already approved package")
+
+
+def test_pipeline_os_lock_prevents_overlapping_runs(tmp_path):
+    import pytest
+
+    from pipelines.lock import pipeline_lock
+    lock = tmp_path / "batch.lock"
+    with pipeline_lock(lock), pytest.raises(ValueError, match="already running"), pipeline_lock(lock):
+        pass
+    with pipeline_lock(lock):
+        pass  # OS ownership is released even though the lock file remains.

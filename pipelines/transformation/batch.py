@@ -24,8 +24,9 @@ from .standardization import (
 from .traffic import build_traffic_summary
 
 
-def transform_batch(manifest_path: Path, config: AppConfig, dry_run: bool = False) -> Path | dict:
-    manifest, raw = read_package(manifest_path, "extraction")
+def transform_batch(manifest_path: Path, config: AppConfig, dry_run: bool = False,
+                    source_package: tuple | None = None) -> Path | dict:
+    manifest, raw = source_package if source_package is not None else read_package(manifest_path, "extraction")
     if set(raw) != set(CONTRACT):
         raise ValueError("extraction package has missing or unexpected tables")
     days = [date.fromisoformat(value) for value in manifest["dates"]]
@@ -86,11 +87,11 @@ def transform_batch(manifest_path: Path, config: AppConfig, dry_run: bool = Fals
     frames = {"dim_date": dim, **facts, "transformation_quarantine": quarantine}
     metadata = {"dates": manifest["dates"], "snapshot_at": manifest["snapshot_at"],
                 "source_mode": manifest["source_mode"], "parent_run_id": manifest["pipeline_run_id"],
-                "parent_manifest_sha256": __import__("hashlib").sha256(manifest_path.read_bytes()).hexdigest(),
+                "parent_manifest_sha256": __import__("hashlib").sha256(manifest_path.read_bytes()).hexdigest() if source_package is None else "DRY_RUN",
                 "source_counts": counts, "rejection_rate": rate, "warnings": warnings,
                 "validation_results": {"source_reconciliation": "PASS", "fact_grain": "PASS",
                                        "financial_records": "FAIL" if financial_rejects else "PASS"}}
     if dry_run:
-        return dict(metadata, decision=decision, output_counts={k: len(v) for k, v in frames.items()})
+        return dict(metadata, decision=decision, output_counts={k: len(v) for k, v in frames.items()}, _frames=frames)
     return write_package(config.etl.silver_dir, new_id("Transform"), "transformation",
                          frames, metadata, decision)

@@ -205,7 +205,7 @@ def load_batch(manifest_path: Path, config: WarehouseConfig, log_dir: Path = Pat
         record["tables"] = {table: {"received": len(frames[table]), "inserted": 0,
                                     "updated": 0, "loaded": 0, "rejected": 0} for table in TABLES}
         validate_input(manifest, frames)
-        if manifest["source_mode"] == "mock" and not config.allow_demo:
+        if manifest["source_mode"] == "mock" and (not config.allow_demo or not config.dbname.endswith(("_demo", "_test"))):
             raise ValueError("mock packages require a separate demo/test target with WAREHOUSE_ALLOW_DEMO=true")
         if shutil.disk_usage(config.storage_path).free < config.minimum_free_bytes:
             raise ValueError("insufficient free space on the configured local warehouse volume")

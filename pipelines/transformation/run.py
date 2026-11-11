@@ -1,83 +1,43 @@
-"""Command-line entry point for the Stage 2 transformation batch."""
-
-from __future__ import annotations
-
+"""Transform or review an immutable Stage 1/2 handover; no source connection is needed."""
 import argparse
+import json
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 from pipelines.config import ConfigError, load_config
-from pipelines.extraction.run import resolve_business_date
 
-from .input import TransformationInputError
-from .runner import run_transformation
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Run the Jowen Two Three transformation batch."
-    )
-    parser.add_argument("--date", help="business date in YYYY-MM-DD format")
-    parser.add_argument(
-        "--lookback-days",
-        type=int,
-        default=None,
-        help="number of business dates to reprocess (default: config)",
-    )
-    parser.add_argument("--demo", action="store_true", help="force mock mode")
-    parser.add_argument("--dry-run", action="store_true", help="skip all writes")
-    parser.add_argument(
-        "--parent-run-id",
-        default=None,
-        help="explicit extraction run ID to consume",
-    )
-    return parser
+from .batch import transform_batch
+from .review import approve
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--review-reason", help="explicitly approve a held non-critical Stage 2 package")
+    args = parser.parse_args(argv)
     load_dotenv()
-
-    env = dict(os.environ)
-    if args.demo:
-        env["ETL_MOCK_MODE"] = "true"
-
+    config = load_config(dict(os.environ, ETL_MOCK_MODE="true"))
     try:
-        config = load_config(env)
-    except ConfigError as exc:
-        print(f"Configuration error: {exc}")
-        return 2
-
-    business_date = resolve_business_date(args.date, config)
-    try:
-        result = run_transformation(
-            business_date,
-            config,
-            lookback_days=args.lookback_days,
-            dry_run=args.dry_run,
-            parent_run_id=args.parent_run_id,
-        )
-    except TransformationInputError as exc:
-        print(f"Input error: {exc}")
-        return 2
-
-    print(
-        f"{result.run_id} {result.business_date.isoformat()} "
-        f"parent={result.parent_run_id} status={result.status} "
-        f"decision={result.decision} "
-        f"validation={'PASS' if result.validation_passed else 'FAIL'}"
-    )
-    for name, path in result.silver_paths.items():
-        print(f" - {name}: {path}")
-    for name, path in result.quarantine_paths.items():
-        print(f" - quarantine {name}: {path}")
-    if result.log_path is not None:
-        print(f" log: {result.log_path}")
-    if result.handover_path is not None:
-        print(f" handover: {result.handover_path}")
-
-    return 0 if result.decision == "APPROVED" else 1
+        if args.review_reason:
+            if args.dry_run:
+                raise ValueError("review approval cannot be combined with dry-run")
+            result = approve(args.manifest, config, args.review_reason)
+        else:
+            result = transform_batch(args.manifest, config, args.dry_run)
+        if isinstance(result, dict):
+            result.pop("_frames", None)
+            metadata = result
+        else:
+            metadata = json.loads(result.read_text(encoding="utf-8"))
+            metadata["manifest_path"] = str(result)
+        print(json.dumps(metadata, default=str, indent=2))
+        return 0 if metadata["decision"] == "APPROVED" else 1
+    except (ConfigError, ValueError, KeyError, TypeError, OSError, ArithmeticError) as exc:
+        print(f"Transformation stopped: {type(exc).__name__}: {exc}")
+        return 1
 
 
 if __name__ == "__main__":

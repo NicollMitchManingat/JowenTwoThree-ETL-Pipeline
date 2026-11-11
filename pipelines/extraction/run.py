@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import argparse
-import os
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pandas as pd
 import psycopg
-from dotenv import load_dotenv
 
-from pipelines.config import AppConfig, ConfigError, load_config
+from pipelines.config import AppConfig
 from pipelines.db import get_source_connection, with_retry
 from pipelines.logging_setup import configure_logging
 
@@ -244,40 +242,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    load_dotenv()
+    """The supported CLI uses bounded, sealed version-2 packages."""
+    from .cli import main as version_two_main
 
-    env = dict(os.environ)
-    if args.demo:
-        env["ETL_MOCK_MODE"] = "true"
-
-    try:
-        config = load_config(env)
-    except ConfigError as exc:
-        print(f"Configuration error: {exc}")
-        return 2
-
-    business_date = resolve_business_date(args.date, config)
-    result = run_extraction(
-        business_date,
-        config,
-        full=args.full,
-        dry_run=args.dry_run,
-    )
-
-    print(
-        f"{result.run_id} {result.business_date.isoformat()} "
-        f"status={result.status} decision={result.decision} "
-        f"validation={'PASS' if result.validation_passed else 'FAIL'}"
-    )
-    for table, path in result.parquet_paths.items():
-        print(f" - {table}: {path}")
-    if result.log_path is not None:
-        print(f" log: {result.log_path}")
-    if result.handover_path is not None:
-        print(f" handover: {result.handover_path}")
-
-    return 0 if result.status == "SUCCESS" else 1
+    return version_two_main(argv)
 
 
 if __name__ == "__main__":
