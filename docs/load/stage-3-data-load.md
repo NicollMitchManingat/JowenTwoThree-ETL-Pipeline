@@ -4,7 +4,7 @@
 
 **Load Input**
 
-- Name and Location of Transformed Output: Staged cleaned data and transformed aggregate datasets produced in Stage 2 Data Transformation, held in memory and temporary staging tables (staged_dim_date, staged_fact_sales_summary, staged_fact_inventory_summary, staged_fact_traffic_summary) within PostgreSQL.
+- Name and Location of Transformed Output: A sealed contract-version 2 manifest under data/silver/Transform_<timestamp>_<id>/manifest.json and the run-specific Parquet files alongside it: dim_date, the three fact summaries, and transformation_quarantine. Stage 3 receives the explicit manifest path and never searches mutable date partitions.
 
 - Transformation Metadata Linkage: Linked directly to the Stage 2 transformation execution output via Transformation Run ID TRN_20261013_0200 (derived from extraction Run_20261013_001), processing the previous business day window (2026-10-12 00:00:00 to 2026-10-12 23:59:59).
 
@@ -59,7 +59,7 @@
 | Check Name | Target | Purpose | Validation Criteria | Severity |
 | --- | --- | --- | --- | --- |
 | Target Connection | PostgreSQL Data Warehouse | Verify target availability and write permission | Connection established within 10-second timeout; write test query succeeds | Critical |
-| Handover Status | Transformation Stage Metadata | Ensure only approved datasets are loaded | Stage 2 execution status = APPROVED | Critical |
+| Handover Status | Transformation Stage Metadata | Ensure only approved datasets are loaded | manifest.decision = APPROVED, contract_version = 2, and stage = transformation | Critical |
 | Schema Compatibility | dw_analytics, Target Tables | Prevent column or type mismatch failures | Target table names, column names, and data types match Stage 2 contract strictly | Critical |
 | Duplicate Batch Check | load_log.batch_id | Prevent duplicate processing of an already completed batch | An identical successful manifest is SKIPPED without replay. A new approved correction may upsert the same dates; older extraction snapshots are rejected. | Critical |
 | Storage Capacity Check | Warehouse Storage Volume | Confirm adequate disk space for batch insertion | Available storage volume > 1 GB threshold | Critical |
@@ -148,3 +148,7 @@ Deletion and Backup Protocols
 ### Duplicate, correction, and backfill rules (issue #31)
 
 The batch identity is the SHA-256 of the sealed Stage 2 manifest. A success-only load_batches ledger is committed atomically with facts and SUCCESS logs. Identical replays are no-ops; changing a published transformation identity is rejected. New approved runs replace matching date_key rows. The source extraction snapshot timestamp prevents an older extraction, even one transformed later, from overwriting newer data. Overlapping loads serialize under a transaction advisory lock. Backfills create fresh Stage 1 packages for the requested dates; no force flag bypasses critical checks.
+
+### Sealed handover validation (issue #27)
+
+Each manifest includes its pipeline_run_id, parent extraction run, complete business-date list, source snapshot timestamp, source mode, source reconciliation counts and validation results. Every file has a relative path contained in the run package, exact final row count, column list and SHA-256. Stage 3 verifies all of these before writing. Transformation rejections are upstream audit evidence and are not counted as rows received by loading. A package is immutable; manual review creates a new package linked to the held manifest. Old v1 manifests are rejected and must be regenerated.
