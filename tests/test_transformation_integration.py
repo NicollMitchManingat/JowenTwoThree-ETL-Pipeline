@@ -292,3 +292,31 @@ def test_loader_rejects_orphan_dates_before_connecting(tmp_path):
     frames["dim_date"] = frames["dim_date"].loc[frames["dim_date"]["date_key"] != 20261016]
     with pytest.raises(ValueError, match="referential"):
         validate_input(manifest, frames)
+
+
+
+def test_source_packages_preserve_unconstrained_numeric_precision(tmp_path):
+    from decimal import Decimal
+
+    import pandas as pd
+
+    from pipelines.artifacts import read_package, write_package
+    from pipelines.extraction.batch import extract_batch
+    from pipelines.transformation.batch import transform_batch
+    config = load_config({"ETL_MOCK_MODE": "true", "ETL_STAGING_DIR": str(tmp_path / "bronze"),
+                          "ETL_SILVER_DIR": str(tmp_path / "silver")})
+    raw, captured = extract_batch(date(2026, 10, 16), date(2026, 10, 16), config)
+    raw["inventory"] = pd.DataFrame({"item_id": ["precise"], "name": ["Exact"],
+                                    "stock_quantity": [Decimal("1E-100")],
+                                    "low_stock_threshold": [Decimal("2E-100")],
+                                    "unit": ["kg"], "is_active": [True]})
+    source = write_package(config.etl.staging_dir, "Run_precision", "extraction", raw,
+                           {"dates": ["2026-10-16"], "snapshot_at": captured.isoformat(), "source_mode": "mock"})
+    _, sealed = read_package(source, "extraction")
+    assert Decimal(sealed["inventory"].iloc[0]["stock_quantity"]) == Decimal("1E-100")
+    output = transform_batch(source, config)
+    _, frames = read_package(output, "transformation")
+    inventory = frames["fact_inventory_summary"].iloc[0]
+    assert inventory["total_items"] == 1
+    assert inventory["low_stock_items"] == 1
+    assert inventory["out_of_stock_items"] == 0

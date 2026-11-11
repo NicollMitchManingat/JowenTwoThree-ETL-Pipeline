@@ -32,6 +32,8 @@ def dates_between(start: date, end: date) -> list[date]:
 
 def extract_batch(start: date, end: date, config: AppConfig,
                   captured_at: datetime | None = None) -> tuple[dict[str, pd.DataFrame], datetime]:
+    if config.etl.timezone != "Asia/Manila":
+        raise ValueError("the POS reporting contract requires Asia/Manila business dates")
     captured = captured_at or datetime.now(UTC)
     if config.etl.mock_mode:
         frames = {
@@ -50,6 +52,9 @@ def extract_batch(start: date, end: date, config: AppConfig,
     _, right = business_day_window(end, config.etl.timezone)
     with get_source_connection(config) as connection, connection.cursor() as cursor:
         cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        if captured_at is None:
+            cursor.execute("SELECT transaction_timestamp()")
+            captured = cursor.fetchone()[0]
         cursor.execute("""SELECT table_name,column_name,udt_name FROM information_schema.columns
                           WHERE table_schema='public' AND table_name = ANY(%s)""", (list(CONTRACT),))
         actual = {(t, c): kind for t, c, kind in cursor.fetchall()}

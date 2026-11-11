@@ -36,7 +36,14 @@ def write_package(root: Path, run_id: str, stage: str, frames: dict[str, pd.Data
         if not table.replace("_", "").isalnum():
             raise ValueError("invalid artifact table name")
         target = folder / f"{table}.parquet"
-        frame.to_parquet(target, index=False)
+        stored = frame.copy()
+        if stage == "extraction":
+            # PostgreSQL unconstrained NUMERIC can exceed Arrow decimal precision/scale.
+            # Lossless decimal text is the bronze wire format, never float conversion.
+            for column in ("stock_quantity", "low_stock_threshold", "total", "refund_amount"):
+                if column in stored:
+                    stored[column] = stored[column].map(lambda value: None if pd.isna(value) else str(value))
+        stored.to_parquet(target, index=False)
         tables[table] = {"path": target.name, "records": len(frame),
                          "columns": list(frame.columns), "sha256": file_digest(target)}
     manifest = dict(metadata, contract_version=VERSION, stage=stage,
