@@ -42,3 +42,11 @@ def test_warehouse_schema_enforces_referential_integrity() -> None:
     assert sql.count("REFERENCES dim_date (date_key)") == 3
     assert "CHECK (total_sales >= 0)" in sql
     assert "UNIQUE (run_id, source_table, rule_id, source_record_id)" in sql
+
+
+def test_daily_grain_and_net_revenue_constraints():
+    sql = SCHEMA_PATH.read_text(encoding="utf-8")
+    assert sql.count("date_key INTEGER NOT NULL UNIQUE REFERENCES") == 3
+    assert "CREATE SCHEMA IF NOT EXISTS dw_analytics" in sql
+    assert "CHECK (net_sales = total_sales - refund_amount)" in sql
+    assert "NUMERIC(18, 2)" in sql

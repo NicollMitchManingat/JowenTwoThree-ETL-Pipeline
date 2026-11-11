@@ -1,3 +1,7 @@
+-- Local reporting warehouse only; never execute against the POS source.
+CREATE SCHEMA IF NOT EXISTS dw_analytics;
+SET search_path TO dw_analytics, pg_catalog;
+
 -- Stage 2 warehouse schema contract.
 -- These tables are defined here for the future load stage; Stage 2 itself
 -- writes Parquet handover files and does not connect to this database.
@@ -17,30 +21,37 @@ CREATE TABLE IF NOT EXISTS dim_date (
 
 CREATE TABLE IF NOT EXISTS fact_sales_summary (
     sales_summary_key TEXT PRIMARY KEY,
-    date_key INTEGER NOT NULL REFERENCES dim_date (date_key),
+    date_key INTEGER NOT NULL UNIQUE REFERENCES dim_date (date_key),
     total_sales NUMERIC(18, 2) NOT NULL CHECK (total_sales >= 0),
     refund_amount NUMERIC(18, 2) NOT NULL CHECK (refund_amount >= 0),
-    net_sales NUMERIC(18, 2) NOT NULL,
-    total_orders INTEGER NOT NULL CHECK (total_orders >= 0),
+    net_sales NUMERIC(18, 2) NOT NULL CHECK (net_sales = total_sales - refund_amount),
+    total_orders BIGINT NOT NULL CHECK (total_orders >= 0),
+    source_run_id TEXT,
+    source_created_at TIMESTAMPTZ NOT NULL DEFAULT '-infinity',
     loaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS fact_inventory_summary (
     inventory_summary_key TEXT PRIMARY KEY,
-    date_key INTEGER NOT NULL REFERENCES dim_date (date_key),
-    total_items INTEGER NOT NULL CHECK (total_items >= 0),
-    low_stock_items INTEGER NOT NULL CHECK (low_stock_items >= 0),
-    out_of_stock_items INTEGER NOT NULL CHECK (out_of_stock_items >= 0),
+    date_key INTEGER NOT NULL UNIQUE REFERENCES dim_date (date_key),
+    total_items BIGINT NOT NULL CHECK (total_items >= 0),
+    low_stock_items BIGINT NOT NULL CHECK (low_stock_items >= 0),
+    out_of_stock_items BIGINT NOT NULL CHECK (out_of_stock_items >= 0),
+    CHECK (low_stock_items + out_of_stock_items <= total_items),
     threshold_policy TEXT NOT NULL CHECK (threshold_policy = 'PER_ITEM'),
     snapshot_at TIMESTAMPTZ NOT NULL,
+    source_run_id TEXT,
+    source_created_at TIMESTAMPTZ NOT NULL DEFAULT '-infinity',
     loaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS fact_traffic_summary (
     traffic_summary_key TEXT PRIMARY KEY,
-    date_key INTEGER NOT NULL REFERENCES dim_date (date_key),
-    total_customers INTEGER NOT NULL CHECK (total_customers >= 0),
+    date_key INTEGER NOT NULL UNIQUE REFERENCES dim_date (date_key),
+    total_customers BIGINT NOT NULL CHECK (total_customers >= 0),
     peak_hour TIME,
+    source_run_id TEXT,
+    source_created_at TIMESTAMPTZ NOT NULL DEFAULT '-infinity',
     loaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
